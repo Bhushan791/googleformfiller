@@ -1,9 +1,10 @@
 import asyncHandler from "../utils/asyncHandler.js";
 import { getLLMStatus } from "../services/llm/index.js";
+import jobStore from "../services/jobStore.js";
 
 /**
  * GET /api/llm/status
- * Returns LLM status without leaking API keys.
+ * Returns LLM status without leaking API keys, and includes Redis store status.
  * Query parameter ?refresh=1 forces a rate-limited connectivity re-test.
  */
 export const getStatus = asyncHandler(async (req, res) => {
@@ -11,7 +12,9 @@ export const getStatus = asyncHandler(async (req, res) => {
   const status = await getLLMStatus({ refresh });
   res.json({
     success: true,
-    data: status,
+    data: {
+      ...status,
+      redis: jobStore.getStatus(),
+    },
   });
 });
-

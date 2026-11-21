@@ -7,7 +7,7 @@ import {
   submitSingleResponse,
 } from "./services/submitter.js";
 import { escapeCsvCell, buildJobCsv } from "./utils/csvExport.js";
-import { MemoryJobStore, hashIp } from "./services/jobStore.js";
+import { MemoryJobStore, RedisJobStore, hashIp } from "./services/jobStore.js";
 
 describe("Submission Engine Tests", () => {
   describe("validateActionUrl", () => {
@@ -460,6 +460,93 @@ describe("Submission Engine Tests", () => {
       assert.equal(runningJobs.length, 2);
       const ids = runningJobs.map((j) => j.id).sort();
       assert.deepEqual(ids, ["reboot-job-1", "reboot-job-3"]);
+    });
+  });
+
+  describe("RedisJobStore (Mocked Offline)", () => {
+    let mockClient;
+    let redisStore;
+    let storeMap;
+
+    beforeEach(() => {
+      storeMap = new Map();
+      const zsets = new Map();
+
+      mockClient = {
+        async set(key, val) {
+          storeMap.set(key, val);
+          return "OK";
+        },
+        async get(key) {
+          return storeMap.get(key) || null;
+        },
+        async del(key) {
+          storeMap.delete(key);
+          return 1;
+        },
+        async keys(pattern) {
+          const prefix = pattern.replace("*", "");
+          return Array.from(storeMap.keys()).filter((k) => k.startsWith(prefix));
+        },
+        async expire(_key, _seconds) {
+          return 1;
+        },
+        async zadd(key, score, member) {
+          if (!zsets.has(key)) zsets.set(key, []);
+          zsets.get(key).push({ score, member });
+          return 1;
+        },
+        async zremrangebyscore(key, min, max) {
+          if (!zsets.has(key)) return 0;
+          const remaining = zsets.get(key).filter((item) => item.score < min || item.score > max);
+          zsets.set(key, remaining);
+          return 1;
+        },
+        async zcard(key) {
+          return (zsets.get(key) || []).length;
+        },
+        async ping() {
+          return "PONG";
+        },
+        on() {},
+      };
+
+      redisStore = new RedisJobStore("rediss://mock", { client: mockClient });
+    });
+
+    test("persists, reads, updates, and applies 24h TTL on finished jobs with faf: prefix", async () => {
+      const job = {
+        id: "mock-123",
+        ipHash: "hash-mock",
+        status: "queued",
+        total: 5,
+      };
+
+      await redisStore.createJob(job);
+      const fetched = await redisStore.getJob("mock-123");
+      assert.equal(fetched.id, "mock-123");
+      assert.ok(storeMap.has("faf:job:mock-123"));
+
+      const updated = await redisStore.updateJob("mock-123", { status: "completed" });
+      assert.equal(updated.status, "completed");
+
+      const activeCount = await redisStore.getActiveJobsCount();
+      assert.equal(activeCount, 0);
+    });
+
+    test("tracks running jobs and IP rate limits offline", async () => {
+      const ip = hashIp("1.2.3.4");
+      await redisStore.createJob({ id: "run-1", ipHash: ip, status: "running" });
+      await redisStore.createJob({ id: "run-2", ipHash: ip, status: "running" });
+
+      const running = await redisStore.getRunningJobs();
+      assert.equal(running.length, 2);
+
+      const activeForIp = await redisStore.getActiveJobsForIp(ip);
+      assert.equal(activeForIp.length, 2);
+
+      const count = await redisStore.getCreationCountLastHour(ip);
+      assert.equal(count, 2);
     });
   });
 });

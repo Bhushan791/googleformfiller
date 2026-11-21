@@ -54,5 +54,24 @@ export const previewLimiter = rateLimit({
   },
 });
 
+/**
+ * Rate limiter for job creation.
+ * 15 requests per 15 minutes per IP.
+ */
+export const jobCreationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: {
+      code: 429,
+      errorCode: "RATE_LIMIT_EXCEEDED",
+      message: "Too many job creation requests — please try again later.",
+    },
+  },
+});
+
 // Keep the default export for backwards compatibility with app.js
 export default apiLimiter;

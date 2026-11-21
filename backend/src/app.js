@@ -3,9 +3,10 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 
-import config from "./config/env.js";
+import config, { normalizeOrigin } from "./config/env.js";
 import apiRoutes, { healthRoutes } from "./routes/index.js";
 import apiLimiter from "./middleware/rateLimiter.js";
+import accessCodeMiddleware from "./middleware/accessCode.js";
 import notFound from "./middleware/notFound.js";
 import errorHandler from "./middleware/errorHandler.js";
 
@@ -22,14 +23,17 @@ const app = express();
 app.set("trust proxy", 1);
 
 // ---------------------------------------------------------------------------
-// CORS — allow origins from FRONTEND_URL (comma-separated).
+// CORS — allow origins from FRONTEND_URL (comma-separated, normalized).
 // In non-production, also allow the Vite dev server default.
 // ---------------------------------------------------------------------------
-const allowedOrigins = config.FRONTEND_URL.split(",").map((o) => o.trim());
+const allowedOrigins = config.FRONTEND_URL.split(",")
+  .map(normalizeOrigin)
+  .filter(Boolean);
 
 if (config.NODE_ENV !== "production") {
-  if (!allowedOrigins.includes("http://localhost:5173")) {
-    allowedOrigins.push("http://localhost:5173");
+  const devOrigin = normalizeOrigin("http://localhost:5173");
+  if (!allowedOrigins.includes(devOrigin)) {
+    allowedOrigins.push(devOrigin);
   }
 }
 
@@ -37,10 +41,14 @@ app.use(
   cors({
     origin(origin, callback) {
       // Allow requests with no Origin header (curl, server-to-server, etc.)
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin) {
         return callback(null, true);
       }
-      return callback(new Error(`CORS: origin ${origin} not allowed`));
+      const normalized = normalizeOrigin(origin);
+      if (allowedOrigins.includes(normalized)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
@@ -54,20 +62,20 @@ app.use(helmet());
 app.use(morgan(config.NODE_ENV === "production" ? "combined" : "dev"));
 
 // ---------------------------------------------------------------------------
-// Body parsers
+// Body parsers (JSON body limit 1mb)
 // ---------------------------------------------------------------------------
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
-// Health check — no rate limiter
+// Health check — fast, no DB/LLM dependency, exempt from rate limiter & auth
 app.use("/health", healthRoutes);
 
-// All /api routes — rate-limited
-app.use("/api", apiLimiter, apiRoutes);
+// All /api routes — rate-limited and access-code checked
+app.use("/api", apiLimiter, accessCodeMiddleware, apiRoutes);
 
 // ---------------------------------------------------------------------------
 // Error handling (must be registered AFTER routes)

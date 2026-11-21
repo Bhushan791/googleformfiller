@@ -7,10 +7,11 @@ import {
   cancelJob,
   exportJobCsv,
 } from "../controllers/job.controller.js";
+import { jobCreationLimiter } from "../middleware/rateLimiter.js";
 
 const router = Router();
 
-router.post("/", createJob);
+router.post("/", jobCreationLimiter, createJob);
 router.get("/:id", getJobStatus);
 router.post("/:id/pause", pauseJob);
 router.post("/:id/resume", resumeJob);

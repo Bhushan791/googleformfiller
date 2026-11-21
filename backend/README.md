@@ -64,6 +64,7 @@ npm start
 | `LLM_MODEL_OPENROUTER` | No       | `baidu/ernie-5.5-flash-preview:free` | Override OpenRouter model          |
 | `LLM_BASE_URL`     | No       | —                    | Base URL override for OpenAI-compatible providers  |
 | `REDIS_URL`        | No       | —                    | Redis connection string (caching / queues)         |
+| `ACCESS_CODE`      | No       | —                    | Optional secret access code requiring `x-access-code` header on `/api` |
 
 ---
 

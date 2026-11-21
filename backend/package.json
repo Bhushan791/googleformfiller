@@ -7,9 +7,12 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test src/formParser.test.js src/responseGenerator.test.js src/submission.test.js src/llm.test.js src/prewarm.test.js",
+    "test": "node --test src/formParser.test.js src/responseGenerator.test.js src/submission.test.js src/llm.test.js src/prewarm.test.js src/production.test.js",
     "inspect-form": "node src/scripts/inspectForm.js",
     "test-llm": "node src/scripts/testLLM.js"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "keywords": [
     "google-forms",
@@ -18,6 +21,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@upstash/redis": "^1.41.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

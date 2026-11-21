@@ -34,14 +34,33 @@ const envSchema = z.object({
 
   // Optional for now — will be needed for caching / queues
   REDIS_URL: z.string().optional(),
+
+  // Optional access code for securing /api routes
+  ACCESS_CODE: z.string().optional(),
 });
+
+/**
+ * Normalizes an origin string (strips trailing slashes, whitespace, and resolves origin).
+ */
+export function normalizeOrigin(urlStr) {
+  if (!urlStr || typeof urlStr !== "string") return "";
+  const trimmed = urlStr.trim().replace(/\/+$/, "");
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed;
+  }
+}
 
 /** Validate and freeze the config so nothing can mutate it at runtime. */
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
   console.error("❌  Invalid environment variables:");
-  console.error(parsed.error.format());
+  const missing = parsed.error.issues
+    .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+    .join(", ");
+  console.error(`Missing or invalid required environment variable(s): ${missing}`);
   process.exit(1);
 }
 
