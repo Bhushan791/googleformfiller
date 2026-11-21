@@ -1,5 +1,5 @@
 # ==============================================================================
-# Form Auto Filler - Global .gitignore
+# Autofillr - Global .gitignore
 # ==============================================================================
 
 # Dependencies
@@ -7,7 +7,7 @@ node_modules/
 */node_modules/
 .pnp
 .pnp.js
-
+redisimplementation.md
 # Environment variables and secrets (NEVER commit credentials or keys)
 .env
 .env.*

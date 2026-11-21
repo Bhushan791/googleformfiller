@@ -71,6 +71,15 @@ app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 // Routes
 // ---------------------------------------------------------------------------
 
+// Root info route
+app.get("/", (_req, res) => {
+  res.json({
+    name: "Autofillr",
+    status: "ok",
+    version: "1.0.0",
+  });
+});
+
 // Health check — fast, no DB/LLM dependency, exempt from rate limiter & auth
 app.use("/health", healthRoutes);
 

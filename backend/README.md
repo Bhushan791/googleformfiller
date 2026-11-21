@@ -1,6 +1,6 @@
-# Form Auto Filler — Backend API
+# Autofillr — Backend API
 
-> REST API backend for **Form Auto Filler**, a tool that generates and submits
+> REST API backend for **Autofillr**, a tool that generates and submits
 > test responses to Google Forms you own — perfect for testing and seeding demo
 > data.
 

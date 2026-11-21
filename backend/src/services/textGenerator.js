@@ -5,6 +5,124 @@ import answerCache from "./answerCache.js";
 import { refillBuffer } from "./prewarm.js";
 
 // ---------------------------------------------------------------------------
+// Blocklist & Diversity Helpers for Audience Modes
+// ---------------------------------------------------------------------------
+
+export const PAST_EXPERIENCE_REGEX =
+  /\b(I\s+(?:used|tried|bought|paid|subscribed)|my\s+(?:account|ticket|order)|crashed|support\s+(?:ignored|never)|customer\s+service|refund(?:ed)?)\b/i;
+
+/**
+ * Checks if a string contains past-experience phrasing (strictly blocked in prelaunch & research).
+ */
+export function hasPastExperiencePhrasing(text = "") {
+  if (!text || typeof text !== "string") return false;
+  return PAST_EXPERIENCE_REGEX.test(text);
+}
+
+/**
+ * Calculates word-level Jaccard similarity between two strings.
+ */
+export function calculateJaccardSimilarity(str1 = "", str2 = "") {
+  const words1 = (str1.toLowerCase().match(/\b\w+\b/g) || []);
+  const words2 = (str2.toLowerCase().match(/\b\w+\b/g) || []);
+  if (words1.length === 0 && words2.length === 0) return 1;
+  if (words1.length === 0 || words2.length === 0) return 0;
+
+  const set1 = new Set(words1);
+  const set2 = new Set(words2);
+  let intersection = 0;
+  for (const w of set1) {
+    if (set2.has(w)) intersection++;
+  }
+  const union = set1.size + set2.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+/**
+ * Filters out exact and near-duplicate answers (Jaccard > maxJaccard).
+ */
+export function filterDiverseAnswers(answers = [], { maxJaccard = 0.7 } = {}) {
+  const accepted = [];
+  for (const ans of answers) {
+    const clean = (ans || "").trim();
+    if (!clean) continue;
+    const isDuplicate = accepted.some(
+      (existing) =>
+        existing.toLowerCase() === clean.toLowerCase() ||
+        calculateJaccardSimilarity(existing, clean) > maxJaccard
+    );
+    if (!isDuplicate) {
+      accepted.push(clean);
+    }
+  }
+  return accepted;
+}
+
+/**
+ * Detects whether more than thresholdPercent (default 20%) of answers share the same first 3 words.
+ */
+export function findRepetitivePrefixes(answers = [], thresholdPercent = 0.2) {
+  if (!answers || answers.length < 3) return [];
+  const prefixCounts = new Map();
+  for (const ans of answers) {
+    const words = (ans || "").trim().toLowerCase().match(/\b\w+\b/g) || [];
+    if (words.length >= 3) {
+      const prefix = words.slice(0, 3).join(" ");
+      prefixCounts.set(prefix, (prefixCounts.get(prefix) || 0) + 1);
+    }
+  }
+  const threshold = answers.length * thresholdPercent;
+  const repetitive = [];
+  for (const [prefix, count] of prefixCounts.entries()) {
+    if (count >= 2 && count > threshold) {
+      repetitive.push(prefix);
+    }
+  }
+  return repetitive;
+}
+
+/**
+ * Builds system/mode prompt instructions for a given audience mode and optional scenario.
+ */
+export function buildModeInstructions(mode = "research", scenario = "") {
+  let modeText = "";
+  switch (mode) {
+    case "prelaunch":
+      modeText = `Audience mode: PRELAUNCH (respondents have NOT used the product yet).
+- Positive answers: excitement, anticipation, and desired feature wishes.
+- Neutral answers: curious, open-minded, but unsure if they need it.
+- Negative answers: skepticism about the IDEA in a casual voice (e.g. already many similar apps, don't see the need, wouldn't use it, don't trust accuracy or prices).
+- CRITICAL: NO past usage statements (never say 'I used', 'I tried', 'my account', etc.).`;
+      break;
+    case "launched":
+      modeText = `Audience mode: LAUNCHED (respondents HAVE used the product/service).
+- Realistic experiences are allowed, but strictly grounded in plausible form text.
+- Never invent specific outages, staff names, specific prices or unmentioned features.`;
+      break;
+    case "event":
+      modeText = `Audience mode: EVENT (respondents attended the event/workshop).
+- Feedback about the experience, speakers, venue, or organization, grounded in the form text.`;
+      break;
+    case "custom":
+      modeText = `Audience mode: CUSTOM. Follow this scenario strictly: "${scenario}".`;
+      break;
+    case "research":
+    default:
+      modeText = `Audience mode: RESEARCH (personal opinions, habits, lifestyle and preferences).
+- Do NOT imply product usage. Speak to everyday habits and honest opinions.`;
+      break;
+  }
+
+  const scenarioText = scenario && mode !== "custom" ? `\nExtra scenario note: "${scenario}"\n` : "";
+  return `${modeText}${scenarioText}
+Rules for all responses:
+- Ground answers ONLY in the form text and the scenario note.
+- Short, casual, natural, and varied.
+- 5 to 18 words for short text questions; 1 to 3 sentences for paragraphs.
+- Examples or illustrations are for inspiration only, never copy them.`;
+}
+
+// ---------------------------------------------------------------------------
 // Local built-in realistic mock data for obvious field types
 // ---------------------------------------------------------------------------
 
@@ -254,10 +372,27 @@ export async function generateBatchedText({
   styleHint = null,
   generateTextFn = undefined,
   formKey = null,
+  settings = null,
 }) {
   const safeCount = Math.max(1, Math.min(40, count)); // Cost guard: max 40 per call
   const isParagraph = question.type === "paragraph";
   const qid = question.id || question.entryId;
+
+  // Determine effective audience mode and scenario
+  const requestedMode = settings?.audienceMode;
+  let effectiveMode = "research";
+  if (requestedMode && requestedMode !== "auto") {
+    effectiveMode = requestedMode;
+  } else if (formKey) {
+    const cachedEntry = answerCache.get(formKey);
+    if (cachedEntry?.effectiveMode) {
+      effectiveMode = cachedEntry.effectiveMode;
+    } else if (cachedEntry?.detectedMode) {
+      effectiveMode = cachedEntry.detectedMode;
+    }
+  }
+  const scenario = settings?.scenario || "";
+  const modeInstructions = buildModeInstructions(effectiveMode, scenario);
 
   // Explicitly opted out of LLM (e.g. offline testing)
   if (anthropicClient === null || generateTextFn === null || generateTextFn === false) {
@@ -280,7 +415,7 @@ export async function generateBatchedText({
 
     // Trigger background refill if buffer < 5
     if (answerCache.needsRefill(formKey, qid, sentiment)) {
-      refillBuffer({ formKey, question, sentiment, formContext, styleHint }).catch(() => {});
+      refillBuffer({ formKey, question, sentiment, formContext, styleHint, settings }).catch(() => {});
     }
 
     if (cachedAnswers.length >= safeCount) {
@@ -370,8 +505,10 @@ ${contextDesc ? `Description: "${contextDesc}"` : ""}\n`
 
   const styleHintBlock = styleHint ? `\nStyle hint: ${styleHint}\n` : "";
 
-  const prompt = `You are generating realistic test responses for a public Google Form survey question.
-${contextBlock}${styleHintBlock}For feedback, improvement, or suggestion questions: generate specific, concrete ideas directly related to the form's topic, not generic praise or complaints.
+  const basePrompt = `You are generating realistic test responses for a public Google Form survey question.
+${contextBlock}
+${modeInstructions}
+${styleHintBlock}For feedback, improvement, or suggestion questions: generate specific, concrete ideas directly related to the form's topic, not generic praise or complaints.
 Generate a JSON array of exactly ${safeCount} varied, natural, and distinct responses with a **${sentiment}** sentiment.
 ${lengthInstruction}
 Vary the tone, phrasing, perspective, and length between items. Do NOT repeat key phrases or template structures.
@@ -384,10 +521,10 @@ Respond ONLY with a valid JSON array of strings:
 ["answer 1", "answer 2", ...]`;
 
   // Function to call model and parse response
-  async function callLLM() {
+  async function callLLM(promptToUse = basePrompt) {
     const fn = generateFn || generateText;
     const raw = await fn({
-      prompt,
+      prompt: promptToUse,
       maxTokens: isParagraph ? 1500 : 800,
       temperature: 0.8, // higher temperature for natural variety
       jsonMode: true,
@@ -409,6 +546,28 @@ Respond ONLY with a valid JSON array of strings:
       );
       // Retry once on failure
       answers = await callLLM();
+    }
+
+    // Diversity check: if more than 20% share the same first three words, regenerate once
+    const repetitivePrefixes = findRepetitivePrefixes(answers, 0.2);
+    if (repetitivePrefixes.length > 0) {
+      try {
+        const avoidPrompt = `${basePrompt}\nCRITICAL: More than 20% of previous answers started identically. Avoid these phrases or starting words: "${repetitivePrefixes.join('", "')}". Vary your opening words and structures.`;
+        const diverseRetry = await callLLM(avoidPrompt);
+        if (Array.isArray(diverseRetry) && diverseRetry.length > 0) {
+          answers = diverseRetry;
+        }
+      } catch {
+        // Keep initial answers if diversity retry failed
+      }
+    }
+
+    // Diversity filter: drop exact and near duplicates (Jaccard > 0.7)
+    answers = filterDiverseAnswers(answers, { maxJaccard: 0.7 });
+
+    // Blocklist: for prelaunch and research, block past-experience phrasing
+    if (effectiveMode === "prelaunch" || effectiveMode === "research") {
+      answers = answers.filter((ans) => !hasPastExperiencePhrasing(ans));
     }
 
     // Ensure we have enough answers; pad with local templates if short

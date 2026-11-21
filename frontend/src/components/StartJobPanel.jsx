@@ -1,154 +1,232 @@
 import React, { useState } from 'react';
-import { Play, Info } from 'lucide-react';
+import { Play, Info, Sparkles, CheckSquare, Clock, ArrowRight } from 'lucide-react';
 import Button from './ui/Button';
 import Alert from './ui/Alert';
 
 export default function StartJobPanel({
   formUrl,
-  count,
+  formTitle = '',
+  count = 10,
   onCountChange,
-  delay,
-  onDelayChange,
-  hasDryRun,
+  settings = {},
+  delay = { minMs: 2000, maxMs: 6000 },
+  hasDryRun = false,
   onStartJob,
+  onNavigateToStep,
   loading = false,
   error = null,
 }) {
-  const [ownsForm, setOwnsForm] = useState(false);
+  const [permissionChecked, setPermissionChecked] = useState(false);
 
-  const minSec = (delay?.minMs ?? 2000) / 1000;
-  const maxSec = (delay?.maxMs ?? 6000) / 1000;
+  const mix = settings?.mix || { positive: 70, neutral: 20, negative: 10 };
+  const minSec = Math.round((delay?.minMs || 2000) / 1000);
+  const maxSec = Math.round((delay?.maxMs || 6000) / 1000);
 
-  const handleMinSecChange = (val) => {
-    const sec = Math.max(0.5, Math.min(60, Number(val) || 1));
-    const newMinMs = Math.round(sec * 1000);
-    const newMaxMs = Math.max(newMinMs, delay?.maxMs ?? 6000);
-    onDelayChange({ minMs: newMinMs, maxMs: newMaxMs });
-  };
-
-  const handleMaxSecChange = (val) => {
-    const sec = Math.max(0.5, Math.min(60, Number(val) || 1));
-    const newMaxMs = Math.round(sec * 1000);
-    const newMinMs = Math.min(newMaxMs, delay?.minMs ?? 2000);
-    onDelayChange({ minMs: newMinMs, maxMs: newMaxMs });
-  };
-
-  const avgSec = (minSec + maxSec) / 2;
-  const totalEstimatedSec = Math.round(count * avgSec);
-  const formatEstimatedTime = (sec) => {
-    if (sec < 60) return `about ${sec} sec`;
-    const mins = Math.round(sec / 60);
-    return `about ${mins} min`;
-  };
-
-  const isValid =
-    ownsForm &&
-    count >= 1 &&
-    count <= 500 &&
-    delay?.minMs >= 500 &&
-    delay?.maxMs >= delay?.minMs;
+  const minMins = (((delay?.minMs || 2000) * count) / 60000).toFixed(1);
+  const maxMins = (((delay?.maxMs || 6000) * count) / 60000).toFixed(1);
 
   const handleStart = (e) => {
     e.preventDefault();
-    if (!isValid || loading) return;
+    if (!permissionChecked || loading) return;
     onStartJob();
   };
 
   return (
-    <div className="w-full rounded-lg border border-slate-200 bg-white p-5 space-y-4">
-      {/* Header & Summary Line */}
-      <div>
-        <h3 className="text-sm font-semibold text-slate-900">
-          Pre-flight Submission Setup
-        </h3>
-        <p className="mt-0.5 text-xs text-slate-600 font-medium">
-          {count} response{count !== 1 ? 's' : ''}, {formatEstimatedTime(totalEstimatedSec)}
-        </p>
-      </div>
-
-      {/* No Dry Run Warning Info Alert */}
-      {!hasDryRun && (
-        <Alert
-          variant="info"
-          title="Recommendation: Review Dry Run First"
-        >
-          <p className="mt-0.5 text-xs text-blue-700">
-            You haven&apos;t generated sample responses yet. Inspecting sample answers in Step 3 helps verify field formatting before live submission.
+    <div className="w-full space-y-5">
+      {/* 1. Ready to Run Card */}
+      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">
+            Ready to run
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Review the final execution parameters below before launching the submission job.
           </p>
-        </Alert>
-      )}
+        </div>
 
-      <form onSubmit={handleStart} className="space-y-4">
-        {/* Delay Range Inputs */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-md bg-slate-50 border border-slate-200">
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Min Delay (seconds)
-            </label>
-            <input
-              type="number"
-              step="0.5"
-              min="0.5"
-              max="30"
-              value={minSec}
-              onChange={(e) => handleMinSecChange(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
-            />
-            <span className="mt-0.5 block text-[10px] text-slate-400">Lower bound between requests</span>
+        {/* Summary List */}
+        <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-md bg-slate-50/50">
+          {/* Form */}
+          <div className="p-3 flex items-center justify-between text-xs">
+            <div className="min-w-0 pr-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-0.5">
+                Target Form
+              </span>
+              <p className="font-semibold text-slate-900 truncate" title={formTitle || formUrl}>
+                {formTitle || 'Loaded Google Form'}
+              </p>
+              {formUrl && (
+                <p className="text-[11px] text-slate-400 font-mono truncate max-w-sm mt-0.5">
+                  {formUrl}
+                </p>
+              )}
+            </div>
+            {onNavigateToStep && (
+              <button
+                type="button"
+                onClick={() => onNavigateToStep(1)}
+                className="text-xs font-medium text-blue-600 hover:text-blue-800 cursor-pointer shrink-0"
+              >
+                Edit
+              </button>
+            )}
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Max Delay (seconds)
-            </label>
-            <input
-              type="number"
-              step="0.5"
-              min="0.5"
-              max="60"
-              value={maxSec}
-              onChange={(e) => handleMaxSecChange(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
-            />
-            <span className="mt-0.5 block text-[10px] text-slate-400">Paced upper bound</span>
+          {/* Responses */}
+          <div className="p-3 flex items-center justify-between text-xs">
+            <div>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-0.5">
+                Total Planned Responses
+              </span>
+              <span className="font-semibold text-slate-900 font-mono text-sm">
+                {count} responses
+              </span>
+            </div>
+            {onNavigateToStep && (
+              <button
+                type="button"
+                onClick={() => onNavigateToStep(2)}
+                className="text-xs font-medium text-blue-600 hover:text-blue-800 cursor-pointer shrink-0"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+
+          {/* Sentiment Mix Bar */}
+          <div className="p-3 flex items-center justify-between text-xs">
+            <div className="space-y-1.5 flex-1 pr-4 max-w-md">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block">
+                Tone Mix Distribution
+              </span>
+              <div className="w-full h-2 rounded-full overflow-hidden flex bg-slate-200">
+                <div
+                  className="bg-green-500/60 h-full"
+                  style={{ width: `${mix.positive}%` }}
+                  title={`Positive: ${mix.positive}%`}
+                />
+                <div
+                  className="bg-slate-300 h-full"
+                  style={{ width: `${mix.neutral}%` }}
+                  title={`Neutral: ${mix.neutral}%`}
+                />
+                <div
+                  className="bg-red-400/70 h-full"
+                  style={{ width: `${mix.negative}%` }}
+                  title={`Negative: ${mix.negative}%`}
+                />
+              </div>
+              <span className="text-[11px] text-slate-600 font-medium block">
+                Positive {mix.positive}% / Neutral {mix.neutral}% / Negative {mix.negative}%
+              </span>
+            </div>
+            {onNavigateToStep && (
+              <button
+                type="button"
+                onClick={() => onNavigateToStep(2)}
+                className="text-xs font-medium text-blue-600 hover:text-blue-800 cursor-pointer shrink-0"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+
+          {/* Delay Range & Estimated Time */}
+          <div className="p-3 flex items-center justify-between text-xs">
+            <div>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-0.5">
+                Delay Pacing & Estimated Time
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-slate-800">
+                  {minSec}s to {maxSec}s between requests
+                </span>
+                <span className="text-slate-400">•</span>
+                <span className="text-slate-600 font-medium">
+                  ~{minMins} to {maxMins} minutes
+                </span>
+              </div>
+            </div>
+            {onNavigateToStep && (
+              <button
+                type="button"
+                onClick={() => onNavigateToStep(2)}
+                className="text-xs font-medium text-blue-600 hover:text-blue-800 cursor-pointer shrink-0"
+              >
+                Edit
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Required Permission Checkbox */}
+        {/* 2. Recommend-first-test hint */}
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2 text-xs text-slate-700">
+            <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>
+              <strong>Tip:</strong> run 1 response first and check your form&apos;s Responses tab.
+            </span>
+          </div>
+
+          {count !== 1 && onCountChange && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => onCountChange(1)}
+              className="shrink-0"
+            >
+              Set count to 1
+            </Button>
+          )}
+        </div>
+
+        {/* 3. Info Alert if no dry run was done */}
+        {!hasDryRun && (
+          <Alert variant="info" title="No dry run performed">
+            <p className="mt-0.5 text-xs text-blue-700 leading-relaxed">
+              You haven&apos;t generated sample preview responses yet. Inspecting answers in Step 3 helps confirm formatting and variety before live submission.
+            </p>
+          </Alert>
+        )}
+
+        {/* 4. Required Permission Checkbox */}
         <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3.5">
-          <label className="flex items-start gap-2.5 cursor-pointer">
+          <label htmlFor="permission-checkbox" className="flex items-start gap-2.5 cursor-pointer select-none">
             <input
+              id="permission-checkbox"
               type="checkbox"
-              checked={ownsForm}
-              onChange={(e) => setOwnsForm(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              checked={permissionChecked}
+              onChange={(e) => setPermissionChecked(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
             />
-            <span className="text-xs font-medium text-slate-800 select-none leading-relaxed">
+            <span className="text-xs font-medium text-slate-800 leading-normal">
               I own this form or have permission to submit test responses to it.
             </span>
           </label>
         </div>
 
-        {/* Start error message */}
+        {/* Start error message if any */}
         {error && (
           <Alert variant="error" title="Submission failed to start">
             <p className="mt-0.5 text-xs text-rose-700">{error}</p>
           </Alert>
         )}
 
-        {/* Submit Primary CTA */}
+        {/* 5. Primary Start Run CTA */}
         <Button
-          type="submit"
+          type="button"
           variant="primary"
           size="md"
           loading={loading}
-          disabled={!isValid || loading}
+          disabled={!permissionChecked || loading}
+          onClick={handleStart}
           icon={Play}
           className="w-full"
         >
-          {loading ? 'Initializing Job…' : `Start Submitting ${count} Responses`}
+          {loading ? 'Initializing submissions…' : `Start run (${count} responses)`}
         </Button>
-      </form>
+      </div>
     </div>
   );
 }

@@ -1,28 +1,35 @@
-import { useEffect, useState } from "react";
-import client from "../api/client";
-import Badge from "./ui/Badge";
-import Button from "./ui/Button";
-import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
+import { useEffect, useState } from 'react';
+import client from '../api/client';
+import Badge from './ui/Badge';
+import Button from './ui/Button';
+import { ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
 
 /**
- * Displays compact form header card: title, description clamped to 3 lines with Show more,
- * question count, AI chip from prewarm status, and optional Continue button.
+ * Compact form header card displayed after a form is loaded on Step 1:
+ * - title
+ * - description clamped to 3 lines with Show more / Show less
+ * - question count badge
+ * - AI status chip from prewarm
+ * - primary "Continue" button
+ * - secondary "Use a different form" button (not a bare text link)
  */
 export default function FormSummary({
   title,
   description,
-  questionCount,
-  unsupportedCount,
+  questionCount = 0,
+  unsupportedCount = 0,
   formKey,
   onContinue,
-  showContinue = false,
+  onUseDifferentForm,
+  showContinue = true,
 }) {
-  const [prewarmStatus, setPrewarmStatus] = useState("warming");
+  const [prewarmStatus, setPrewarmStatus] = useState('warming');
   const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     if (!formKey) return;
 
+    setPrewarmStatus('warming');
     let timer = null;
     let isMounted = true;
 
@@ -36,12 +43,12 @@ export default function FormSummary({
           setPrewarmStatus(status);
         }
 
-        if (status === "warming" || status === "idle") {
+        if (status === 'warming' || status === 'idle') {
           timer = setTimeout(pollStatus, 2000);
         }
       } catch {
         if (isMounted) {
-          setPrewarmStatus("failed");
+          setPrewarmStatus('failed');
         }
       }
     }
@@ -63,11 +70,13 @@ export default function FormSummary({
               Form Loaded
             </span>
           </div>
-          <h3 className="text-base font-semibold text-slate-900 break-words">{title || "Untitled Form"}</h3>
-          
+          <h3 className="text-base font-semibold text-slate-900 break-words">
+            {title || 'Untitled Form'}
+          </h3>
+
           {description && (
             <div className="text-xs text-slate-600 leading-relaxed">
-              <p className={!isExpanded ? "line-clamp-3" : ""}>{description}</p>
+              <p className={!isExpanded ? 'line-clamp-3' : ''}>{description}</p>
               {description.length > 180 && (
                 <button
                   type="button"
@@ -93,17 +102,17 @@ export default function FormSummary({
 
         {/* AI Prewarm Status Chip */}
         <div className="shrink-0">
-          {prewarmStatus === "warming" && (
+          {prewarmStatus === 'warming' && (
             <Badge variant="info" dot>
               Preparing AI answers...
             </Badge>
           )}
-          {(prewarmStatus === "ready" || prewarmStatus === "partial") && (
+          {(prewarmStatus === 'ready' || prewarmStatus === 'partial') && (
             <Badge variant="success" dot>
               AI answers ready
             </Badge>
           )}
-          {prewarmStatus === "failed" && (
+          {prewarmStatus === 'failed' && (
             <Badge variant="neutral">
               Basic templates fallback
             </Badge>
@@ -114,7 +123,7 @@ export default function FormSummary({
       <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="neutral">
-            {questionCount} question{questionCount !== 1 ? "s" : ""}
+            {questionCount} question{questionCount !== 1 ? 's' : ''}
           </Badge>
           {unsupportedCount > 0 && (
             <Badge variant="warning">
@@ -123,17 +132,30 @@ export default function FormSummary({
           )}
         </div>
 
-        {showContinue && onContinue && (
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            onClick={onContinue}
-            icon={ArrowRight}
-          >
-            Continue
-          </Button>
-        )}
+        <div className="flex items-center gap-2.5">
+          {onUseDifferentForm && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={onUseDifferentForm}
+            >
+              Use a different form
+            </Button>
+          )}
+
+          {showContinue && onContinue && (
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={onContinue}
+              icon={ArrowRight}
+            >
+              Continue
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

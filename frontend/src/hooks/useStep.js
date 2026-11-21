@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 export const STEPS = [
   { id: 1, key: 'form', title: 'Form', description: 'URL & fields' },
@@ -8,45 +8,70 @@ export const STEPS = [
 ];
 
 /**
- * Derives the active step from existing app state and allows navigating back to completed steps.
+ * Single source of truth for step progression and completion state.
+ *
+ * Rules:
+ * - Form (1): done when a form is loaded (Boolean(data)).
+ * - Configure (2): done once user pressed Continue on step 2 (configured === true).
+ * - Review (3): done when dry run generated (Boolean(previewResult)) or skipped (dryRunSkipped === true).
+ * - Run (4): done only when a job for the current form has status "completed".
+ * - Steps whose prerequisite isn't met are DISABLED (grey, not clickable, no check).
+ * - Current step highlighted.
+ * - Done steps are clickable.
  */
 export default function useStep({
   data = null,
   previewResult = null,
-  activeJobId = null,
+  job = null,
+  configured = false,
+  setConfigured = () => {},
+  dryRunSkipped = false,
+  setDryRunSkipped = () => {},
 }) {
-  // Determine highest step unlocked based on app state
-  const getMaxUnlockedStep = () => {
-    if (activeJobId) return 4;
-    if (previewResult) return 4;
-    if (data) return 3;
-    return 1;
+  const [activeStep, setActiveStep] = useState(1);
+
+  // Completion statuses
+  const isFormDone = Boolean(data);
+  const isConfigureDone = isFormDone && Boolean(configured);
+  const isReviewDone = isConfigureDone && (Boolean(previewResult) || Boolean(dryRunSkipped));
+  const isRunDone = job?.status === 'completed';
+
+  // Prerequisites
+  const isStepPrerequisiteMet = (stepId) => {
+    switch (stepId) {
+      case 1:
+        return true;
+      case 2:
+        return isFormDone;
+      case 3:
+        return isConfigureDone;
+      case 4:
+        return isReviewDone;
+      default:
+        return false;
+    }
   };
 
-  const [activeStep, setActiveStep] = useState(() => {
-    if (activeJobId) return 4;
-    if (previewResult) return 3;
-    if (data) return 2;
-    return 1;
-  });
-
-  // Automatically advance when forward state changes
-  useEffect(() => {
-    if (activeJobId) {
-      setActiveStep(4);
-    } else if (previewResult && activeStep < 3) {
-      setActiveStep(3);
-    } else if (data && activeStep < 2) {
-      setActiveStep(2);
-    } else if (!data && !activeJobId) {
-      setActiveStep(1);
+  const isStepDone = (stepId) => {
+    switch (stepId) {
+      case 1:
+        return isFormDone;
+      case 2:
+        return isConfigureDone;
+      case 3:
+        return isReviewDone;
+      case 4:
+        return isRunDone;
+      default:
+        return false;
     }
-  }, [data, previewResult, activeJobId]);
-
-  const maxUnlocked = getMaxUnlockedStep();
+  };
 
   const canGoToStep = (stepId) => {
-    return stepId <= maxUnlocked;
+    if (stepId === 1) return true;
+    if (stepId === activeStep) return true;
+    if (isStepDone(stepId)) return true;
+    return isStepPrerequisiteMet(stepId);
   };
 
   const goToStep = (stepId) => {
@@ -55,28 +80,54 @@ export default function useStep({
     }
   };
 
+  const resetFlags = () => {
+    setConfigured(false);
+    setDryRunSkipped(false);
+    setActiveStep(1);
+  };
+
   const stepsWithState = STEPS.map((step) => {
-    let status = 'upcoming';
-    if (step.id === activeStep) {
+    const done = isStepDone(step.id);
+    const prereqMet = isStepPrerequisiteMet(step.id);
+    const isCurrent = step.id === activeStep;
+
+    let status = 'disabled';
+    let clickable = false;
+
+    if (isCurrent) {
       status = 'current';
-    } else if (step.id < activeStep || (step.id <= maxUnlocked && step.id !== activeStep)) {
+      clickable = true;
+    } else if (done) {
       status = 'done';
+      clickable = true;
+    } else if (prereqMet) {
+      status = 'available';
+      clickable = true;
+    } else {
+      status = 'disabled';
+      clickable = false;
     }
 
     return {
       ...step,
+      isDone: done,
       status,
-      clickable: canGoToStep(step.id),
+      clickable,
     };
   });
 
   return {
     activeStep,
+    setActiveStep,
     goToStep,
     canGoToStep,
     steps: stepsWithState,
+    isFormDone,
+    isConfigureDone,
+    isReviewDone,
+    isRunDone,
+    resetFlags,
     isFirstStep: activeStep === 1,
     isLastStep: activeStep === 4,
   };
 }
-

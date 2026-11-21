@@ -1,6 +1,6 @@
-# Form Auto Filler — Deployment & Production Guide
+# Autofillr — Deployment & Production Guide
 
-This guide explains how to deploy **Form Auto Filler** for production using free-tier services:
+This guide explains how to deploy **Autofillr** for production using free-tier services:
 - **Backend**: [Render](https://render.com) (Node.js Web Service)
 - **Frontend**: [Vercel](https://vercel.com) (Vite + React SPA)
 - **Persistence (Optional)**: [Upstash Redis](https://upstash.com) (Serverless Redis)
@@ -13,12 +13,12 @@ This guide explains how to deploy **Form Auto Filler** for production using free
 1. Sign up or log into [Render](https://render.com).
 2. Click **New +** → **Blueprint** and connect your GitHub repository, **or** choose **Web Service**:
    - **Name**: `formbot-backend`
-   - **Root Directory**: Leave blank (uses repo root) or `backend`
+   - **Root Directory**: `backend`
    - **Environment**: `Node`
    - **Region**: Closest to your users (e.g., Oregon or Frankfurt)
    - **Branch**: `main`
-   - **Build Command**: `cd backend && npm install`
-   - **Start Command**: `cd backend && npm start`
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
    - **Plan**: `Free`
 3. Expand **Advanced Settings**:
    - **Health Check Path**: `/health`
@@ -26,9 +26,10 @@ This guide explains how to deploy **Form Auto Filler** for production using free
    - `NODE_ENV`: `production`
    - `PORT`: `5000`
    - `FRONTEND_URL`: URL of your deployed Vercel frontend (e.g. `https://formbot.vercel.app`)
-   - `ANTHROPIC_API_KEY`: *(Optional)* Your Anthropic API key for realistic sentiment generation.
-   - `ANTHROPIC_MODEL`: `claude-haiku-5-5`
-   - `REDIS_URL`: *(Optional)* Upstash Redis connection string (see section 3).
+   - `GROQ_KEY`: Your Groq API key (`gsk_...`)
+   - `OPENROUTER_KEY`: *(Optional)* Your OpenRouter API key (`sk-or-...`)
+   - `ACCESS_CODE`: *(Optional)* Secret access code; if set, requires the `x-access-code` header on `/api` routes.
+   - `REDIS_URL`: Upstash Redis connection string (copy from your local `.env`, never commit it). Note: TCP / `rediss://` is required, NOT the REST URL (`UPSTASH_REDIS_REST_*`).
 5. Click **Create Web Service**.
 
 > [!NOTE]
@@ -54,17 +55,19 @@ This guide explains how to deploy **Form Auto Filler** for production using free
 
 ## 3. Persistent Job Storage (Upstash Redis)
 
-If `REDIS_URL` is omitted, Form Auto Filler defaults to an **In-Memory Store** (with an explicit startup warning). When using Render free tier, server restarts will reset in-memory jobs. To survive restarts:
+If `REDIS_URL` is omitted, Autofillr defaults to an **In-Memory Store** (with an explicit startup warning). When using Render free tier, server restarts will reset in-memory jobs. To survive restarts:
 
 1. Sign up for a free account at [Upstash](https://upstash.com).
 2. Click **Create Database**:
    - Name: `formbot-jobs`
    - Region: Match your Render backend region for minimal latency
    - Type: Serverless Redis
-3. Under the **Connect** tab, select **ioredis** and copy the connection string:
+3. Under the **Connect** tab, select **ioredis** and copy the TCP connection string:
    ```text
    rediss://default:<password>@<endpoint>.upstash.io:6379
    ```
+   > [!IMPORTANT]
+   > Use the TCP `rediss://` URL (starts with `rediss://`), NOT the REST URL (`UPSTASH_REDIS_REST_*`). Copy it directly from your local `backend/.env` into Render's Environment Variables dashboard; never commit real credentials to Git.
 4. Paste this value into your Render Web Service environment variables as `REDIS_URL`.
 
 ---
@@ -76,7 +79,7 @@ Render free instances sleep after 15 minutes without inbound HTTP requests.
 1. Create a free account at [UptimeRobot](https://uptimerobot.com).
 2. Click **Add New Monitor**:
    - **Monitor Type**: `HTTP(s)`
-   - **Friendly Name**: `Form Auto Filler Backend`
+   - **Friendly Name**: `Autofillr Backend`
    - **URL (or IP)**: `https://<your-render-app>.onrender.com/health`
    - **Monitoring Interval**: Every `10 minutes` (Render sleeps after 15 min)
 3. Click **Create Monitor**. The lightweight `/health` endpoint responds in < 1ms, preventing cold starts.

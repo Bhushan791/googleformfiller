@@ -1,524 +1,452 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import Badge from './ui/Badge';
-import Button from './ui/Button';
-import Input from './ui/Input';
+import EmptyState from './ui/EmptyState';
+import QuestionDrawer from './QuestionDrawer';
 import { 
   Search, 
-  SlidersHorizontal, 
   X, 
-  HelpCircle, 
-  Check, 
-  Sparkles, 
-  RotateCcw,
-  Sliders
+  SlidersHorizontal, 
+  ChevronDown, 
+  ChevronUp, 
+  AlertTriangle,
+  AlignLeft,
+  FileText,
+  CircleDot,
+  CheckSquare,
+  ListFilter,
+  BarChart2,
+  Calendar,
+  Clock,
+  HelpCircle
 } from 'lucide-react';
 
-const TYPE_CATEGORIES = {
-  All: () => true,
-  Text: (type) => ['short_text', 'paragraph'].includes(type),
-  Choice: (type) => ['multiple_choice', 'checkboxes', 'dropdown'].includes(type),
-  Scale: (type) => type === 'linear_scale',
-  'Date-Time': (type) => ['date', 'time'].includes(type),
+const SHORT_TYPE_CONFIG = {
+  short_text: { label: 'Short text', icon: AlignLeft },
+  paragraph: { label: 'Paragraph', icon: FileText },
+  multiple_choice: { label: 'Choice', icon: CircleDot },
+  checkboxes: { label: 'Checkboxes', icon: CheckSquare },
+  dropdown: { label: 'Dropdown', icon: ListFilter },
+  linear_scale: { label: 'Scale', icon: BarChart2 },
+  date: { label: 'Date', icon: Calendar },
+  time: { label: 'Time', icon: Clock },
 };
 
-const TYPE_LABELS = {
-  short_text: 'Short text',
-  paragraph: 'Paragraph',
-  multiple_choice: 'Multiple choice',
-  checkboxes: 'Checkboxes',
-  dropdown: 'Dropdown',
-  linear_scale: 'Scale',
-  date: 'Date',
-  time: 'Time',
-};
+const CATEGORIES = [
+  { id: 'all', label: 'All', match: () => true },
+  { id: 'text', label: 'Text', match: (type) => ['short_text', 'paragraph'].includes(type) },
+  { id: 'choice', label: 'Choice', match: (type) => ['multiple_choice', 'checkboxes', 'dropdown'].includes(type) },
+  { id: 'scale', label: 'Scale', match: (type) => type === 'linear_scale' },
+  { id: 'datetime', label: 'Date/Time', match: (type) => ['date', 'time'].includes(type) },
+];
 
 export default function QuestionList({
   questions = [],
   overrides = {},
   onOverrideChange,
   pools = {},
+  unsupported = [],
 }) {
   const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [activeQuestion, setActiveQuestion] = useState(null); // question being customized in drawer
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [customizedOnly, setCustomizedOnly] = useState(false);
+  const [activeQuestion, setActiveQuestion] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [unsupportedOpen, setUnsupportedOpen] = useState(false);
 
-  const drawerRef = useRef(null);
+  const PAGE_SIZE = 15;
 
-  // Keyboard navigation & accessibility for drawer: close on Esc
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && activeQuestion) {
-        setActiveQuestion(null);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeQuestion]);
+  // Compute category counts
+  const counts = useMemo(() => {
+    const c = { all: questions.length, text: 0, choice: 0, scale: 0, datetime: 0, customized: 0 };
+    questions.forEach((q) => {
+      const qKey = q.id || q.entryId;
+      if (overrides[qKey]) c.customized++;
+      if (['short_text', 'paragraph'].includes(q.type)) c.text++;
+      else if (['multiple_choice', 'checkboxes', 'dropdown'].includes(q.type)) c.choice++;
+      else if (q.type === 'linear_scale') c.scale++;
+      else if (['date', 'time'].includes(q.type)) c.datetime++;
+    });
+    return c;
+  }, [questions, overrides]);
 
-  // Trap focus inside drawer when open
-  useEffect(() => {
-    if (activeQuestion && drawerRef.current) {
-      drawerRef.current.focus();
-    }
-  }, [activeQuestion]);
-
+  // Filtered questions
   const filteredQuestions = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const matchesCategory = TYPE_CATEGORIES[selectedCategory] || (() => true);
+    const cat = CATEGORIES.find((c) => c.id === selectedCategory) || CATEGORIES[0];
 
     return questions.filter((q) => {
+      const qKey = q.id || q.entryId;
       const titleMatch = (q.title || '').toLowerCase().includes(query);
-      const categoryMatch = matchesCategory(q.type);
-      return titleMatch && categoryMatch;
+      const catMatch = cat.match(q.type);
+      const customMatch = customizedOnly ? Boolean(overrides[qKey]) : true;
+      return titleMatch && catMatch && customMatch;
     });
-  }, [questions, search, selectedCategory]);
+  }, [questions, search, selectedCategory, customizedOnly, overrides]);
+
+  // Reset pagination when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [search, selectedCategory, customizedOnly]);
+
+  // Paginated slice
+  const paginatedQuestions = useMemo(() => {
+    if (showAll || filteredQuestions.length <= PAGE_SIZE) {
+      return filteredQuestions;
+    }
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredQuestions.slice(start, start + PAGE_SIZE);
+  }, [filteredQuestions, showAll, currentPage]);
+
+  const totalPages = Math.ceil(filteredQuestions.length / PAGE_SIZE);
 
   const activeKey = activeQuestion ? (activeQuestion.id || activeQuestion.entryId) : null;
-  const activeOverride = activeKey ? (overrides[activeKey] || null) : null;
+  const activeOverride = activeKey ? overrides[activeKey] : null;
 
-  const handleUpdateOverride = (partial) => {
-    if (!activeKey || !onOverrideChange) return;
-    if (!partial || partial.mode === 'default') {
-      onOverrideChange(activeKey, null);
-    } else {
-      onOverrideChange(activeKey, {
-        ...(activeOverride || {}),
-        ...partial,
-      });
-    }
+  const handleSaveOverride = (overrideData) => {
+    if (!activeKey) return;
+    onOverrideChange?.(activeKey, overrideData);
   };
 
   const handleResetOverride = () => {
-    if (!activeKey || !onOverrideChange) return;
-    onOverrideChange(activeKey, null);
+    if (!activeKey) return;
+    onOverrideChange?.(activeKey, null);
   };
 
-  const poolNames = Object.keys(pools);
+  const getSourceHint = (q, override) => {
+    if (override?.mode === 'pool') return 'Pool';
+    if (override?.mode === 'fixed') return 'Fixed';
+    if (override?.mode === 'mix') return 'Mix';
+    if (override?.mode === 'random') return 'Random';
+    const title = (q.title || '').toLowerCase();
+    if (
+      title.includes('name') ||
+      title.includes('email') ||
+      title.includes('phone') ||
+      title.includes('age')
+    ) {
+      return 'Auto';
+    }
+    return 'AI';
+  };
 
   return (
-    <div className="w-full space-y-3">
-      {/* Search and Category Filter Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search questions..."
-            className="w-full rounded-md border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          {search && (
+    <div className="w-full bg-white border border-slate-200 rounded-lg p-5 space-y-4">
+      {/* Unsupported questions alert (collapsed by default) */}
+      {unsupported?.length > 0 && (
+        <div className="border border-amber-200 bg-amber-50/70 rounded-md p-3 text-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-900 font-semibold">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                {unsupported.length} unsupported question{unsupported.length !== 1 ? 's' : ''} will be skipped
+              </span>
+            </div>
             <button
               type="button"
-              onClick={() => setSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              onClick={() => setUnsupportedOpen(!unsupportedOpen)}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-800 hover:text-amber-950 cursor-pointer"
             >
-              <X className="w-3.5 h-3.5" />
+              <span>{unsupportedOpen ? 'Hide' : 'View'}</span>
+              {unsupportedOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
+          </div>
+          {unsupportedOpen && (
+            <ul className="mt-2.5 space-y-1 pt-2 border-t border-amber-200/60 text-amber-800 text-[11px]">
+              {unsupported.map((item, idx) => (
+                <li key={idx} className="flex items-start gap-1.5">
+                  <span className="font-mono text-amber-600 mt-0.5">•</span>
+                  <span>
+                    <strong>{item.title || 'Untitled'}</strong>
+                    {item.reason && ` — ${item.reason}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
+      )}
 
-        {/* Filter Pills */}
-        <div className="flex flex-wrap items-center gap-1">
-          {Object.keys(TYPE_CATEGORIES).map((cat) => {
-            const isSelected = selectedCategory === cat;
-            return (
+      {/* Card Header: Title with count, search input, filter chips, customized only toggle */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Questions
+            </h3>
+            <Badge variant="neutral" className="text-xs font-mono">
+              {questions.length}
+            </Badge>
+          </div>
+
+          {/* Search Input */}
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search questions..."
+              className="w-full rounded-md border border-slate-200 bg-white pl-8 pr-7 py-1 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-600 focus:outline-none"
+            />
+            {search && (
               <button
-                key={cat}
                 type="button"
-                onClick={() => setSelectedCategory(cat)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer border ${
-                  isSelected
-                    ? 'bg-slate-900 border-slate-900 text-white'
-                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                aria-label="Clear search"
               >
-                {cat}
+                <X className="w-3 h-3" />
               </button>
-            );
-          })}
+            )}
+          </div>
+        </div>
+
+        {/* Filter chips & Customized-only toggle */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
+          <div className="flex flex-wrap items-center gap-1">
+            {CATEGORIES.map((cat) => {
+              const isSelected = selectedCategory === cat.id;
+              const countForCat = counts[cat.id] ?? 0;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-slate-900 border-slate-900 text-white'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>{cat.label}</span>
+                  <span className={`text-[10px] font-mono ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
+                    ({countForCat})
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Customized only toggle */}
+          <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={customizedOnly}
+              onChange={(e) => setCustomizedOnly(e.target.checked)}
+              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>Customized only ({counts.customized})</span>
+          </label>
         </div>
       </div>
 
-      {/* Questions Compact Table-like List */}
-      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-        {/* Table Header */}
-        <div className="grid grid-cols-12 gap-3 px-4 py-2.5 bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-          <div className="col-span-1 text-center">#</div>
-          <div className="col-span-5 sm:col-span-6">Question</div>
-          <div className="col-span-3 sm:col-span-2">Type</div>
-          <div className="hidden sm:block sm:col-span-1 text-center">Req</div>
-          <div className="col-span-3 sm:col-span-2 text-right">Customize</div>
+      {/* Table-like Questions List */}
+      <div className="rounded-lg border border-slate-200 overflow-hidden bg-white">
+        {/* Table Header (Desktop/Tablet) */}
+        <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider select-none">
+          <div className="w-8 shrink-0 text-center font-mono">#</div>
+          <div className="flex-1 min-w-0 pr-3">Title</div>
+          <div className="w-28 shrink-0">Type</div>
+          <div className="w-12 shrink-0 text-center">Req</div>
+          <div className="w-14 shrink-0 text-right pr-2">Source</div>
+          <div className="w-20 shrink-0 text-center">Status</div>
+          <div className="w-8 shrink-0 text-right">Edit</div>
         </div>
 
         {/* Rows */}
-        {filteredQuestions.length > 0 ? (
+        {paginatedQuestions.length > 0 ? (
           <div className="divide-y divide-slate-100">
-            {filteredQuestions.map((q, index) => {
+            {paginatedQuestions.map((q, idx) => {
               const qKey = q.id || q.entryId;
               const hasOverride = Boolean(overrides[qKey]);
-              const typeLabel = TYPE_LABELS[q.type] || q.type;
+              const questionNumber = filteredQuestions.indexOf(q) + 1;
+              const typeCfg = SHORT_TYPE_CONFIG[q.type] || { label: q.type, icon: HelpCircle };
+              const TypeIcon = typeCfg.icon;
+              const sourceHint = getSourceHint(q, overrides[qKey]);
 
               return (
                 <div
-                  key={qKey || index}
-                  className="grid grid-cols-12 gap-3 px-4 py-3 items-center hover:bg-slate-50/70 transition-colors text-xs"
+                  key={qKey || idx}
+                  onClick={() => setActiveQuestion(q)}
+                  className="group hover:bg-slate-50/80 transition-colors cursor-pointer"
                 >
-                  {/* Question # */}
-                  <div className="col-span-1 text-center font-mono text-slate-400 font-medium">
-                    {index + 1}
-                  </div>
+                  {/* Desktop / Tablet Row (48px high, fixed columns) */}
+                  <div className="hidden md:flex items-center h-12 px-4 text-xs">
+                    {/* # (32px) */}
+                    <div className="w-8 shrink-0 text-center font-mono text-slate-400 font-medium">
+                      {questionNumber}
+                    </div>
 
-                  {/* Title */}
-                  <div className="col-span-5 sm:col-span-6 min-w-0 pr-2">
-                    <div className="flex items-center gap-1.5">
+                    {/* Title (flex, truncate with tooltip) */}
+                    <div className="flex-1 min-w-0 pr-3">
                       <span
-                        className="font-medium text-slate-900 truncate block"
+                        className="font-medium text-slate-900 truncate block group-hover:text-blue-600 transition-colors"
                         title={q.title}
                       >
-                        {q.title || `Untitled Question ${index + 1}`}
+                        {q.title || `Untitled Question ${questionNumber}`}
                       </span>
                     </div>
-                    {q.helpText && (
-                      <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                        {q.helpText}
-                      </p>
-                    )}
-                  </div>
 
-                  {/* Type Badge */}
-                  <div className="col-span-3 sm:col-span-2 flex items-center">
-                    <Badge variant="neutral" className="text-[11px] font-normal">
-                      {typeLabel}
-                    </Badge>
-                  </div>
-
-                  {/* Required Flag */}
-                  <div className="hidden sm:flex sm:col-span-1 justify-center">
-                    {q.required ? (
-                      <Badge variant="danger" className="text-[10px] px-1.5 py-0">
-                        Req
+                    {/* Type Badge (no wrap, whitespace-nowrap, icon + short label) */}
+                    <div className="w-28 shrink-0 whitespace-nowrap flex items-center">
+                      <Badge variant="neutral" className="text-[11px] font-normal inline-flex items-center gap-1 px-2 py-0.5 whitespace-nowrap">
+                        <TypeIcon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="truncate">{typeCfg.label}</span>
                       </Badge>
-                    ) : (
-                      <span className="text-slate-300">—</span>
-                    )}
+                    </div>
+
+                    {/* Required badge (never cut off) */}
+                    <div className="w-12 shrink-0 flex justify-center items-center">
+                      {q.required ? (
+                        <Badge variant="danger" className="text-[10px] px-1.5 py-0 font-medium shrink-0">
+                          Req
+                        </Badge>
+                      ) : (
+                        <span className="text-slate-300 text-xs">—</span>
+                      )}
+                    </div>
+
+                    {/* Source hint (small muted: "AI", "Auto", "Pool", "Fixed") */}
+                    <div className="w-14 shrink-0 text-right pr-2 text-[11px] text-slate-400 font-medium">
+                      {sourceHint}
+                    </div>
+
+                    {/* Customized badge */}
+                    <div className="w-20 shrink-0 flex justify-center items-center">
+                      {hasOverride ? (
+                        <Badge variant="info" className="text-[10px] px-1.5 py-0 font-medium shrink-0">
+                          Customized
+                        </Badge>
+                      ) : null}
+                    </div>
+
+                    {/* Customize icon button */}
+                    <div className="w-8 shrink-0 flex justify-end items-center">
+                      <button
+                        type="button"
+                        aria-label={`Customize ${q.title}`}
+                        className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveQuestion(q);
+                        }}
+                      >
+                        <SlidersHorizontal className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Customize Action & Override status */}
-                  <div className="col-span-3 sm:col-span-2 flex items-center justify-end gap-1.5">
-                    {hasOverride && (
-                      <Badge variant="info" className="text-[10px] hidden md:inline-flex">
-                        Customized
-                      </Badge>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setActiveQuestion(q)}
-                      aria-label={`Customize question ${index + 1}: ${q.title}`}
-                      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors border ${
-                        hasOverride
-                          ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
-                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <SlidersHorizontal className="w-3 h-3 text-slate-500" strokeWidth={1.75} />
-                      <span>{hasOverride ? 'Edit' : 'Customize'}</span>
-                    </button>
+                  {/* Mobile Compact Two-Line Row (<768px) */}
+                  <div className="md:hidden p-3 space-y-1.5 text-xs">
+                    {/* Line 1: # + Title + Req */}
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-slate-400 font-medium text-[11px]">
+                        #{questionNumber}
+                      </span>
+                      <span
+                        className="font-medium text-slate-900 truncate flex-1 group-hover:text-blue-600"
+                        title={q.title}
+                      >
+                        {q.title || `Untitled Question ${questionNumber}`}
+                      </span>
+                      {q.required && (
+                        <Badge variant="danger" className="text-[10px] px-1.5 py-0 font-medium shrink-0">
+                          Req
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* Line 2: Type badge + Source hint + Customized badge + Customize icon */}
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="neutral" className="text-[10px] inline-flex items-center gap-1 px-1.5 py-0 font-normal">
+                          <TypeIcon className="w-3 h-3 text-slate-500" />
+                          <span>{typeCfg.label}</span>
+                        </Badge>
+                        <span className="text-slate-400 font-medium">Source: {sourceHint}</span>
+                        {hasOverride && (
+                          <Badge variant="info" className="text-[10px] px-1.5 py-0">
+                            Customized
+                          </Badge>
+                        )}
+                      </div>
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
         ) : (
-          <div className="p-8 text-center text-xs text-slate-400">
-            No questions match &quot;{search}&quot;.
+          <div className="p-8 text-center">
+            <EmptyState
+              title="No questions match"
+              description="Try adjusting your search terms or category filters."
+            />
           </div>
         )}
       </div>
 
-      {/* Question Customization Drawer (Slide-over) */}
-      {activeQuestion && (
-        <div
-          className="fixed inset-0 z-50 overflow-hidden bg-slate-900/40 backdrop-blur-[2px] flex justify-end animate-in fade-in duration-150"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="drawer-title"
-          onClick={() => setActiveQuestion(null)}
-        >
-          <div
-            ref={drawerRef}
-            tabIndex={-1}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col focus:outline-none animate-in slide-in-from-right duration-200"
-          >
-            {/* Drawer Header */}
-            <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
-              <div className="space-y-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <Badge variant="neutral" className="text-[10px]">
-                    {TYPE_LABELS[activeQuestion.type] || activeQuestion.type}
-                  </Badge>
-                  {activeQuestion.required && (
-                    <Badge variant="danger" className="text-[10px]">
-                      Required
-                    </Badge>
-                  )}
-                </div>
-                <h3 id="drawer-title" className="text-sm font-semibold text-slate-900 leading-snug">
-                  {activeQuestion.title}
-                </h3>
-                {activeQuestion.helpText && (
-                  <p className="text-xs text-slate-500">{activeQuestion.helpText}</p>
-                )}
+      {/* Pagination or Show All Controls (if >15 questions) */}
+      {filteredQuestions.length > PAGE_SIZE && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 text-xs text-slate-500">
+          <div>
+            Showing{' '}
+            <span className="font-semibold text-slate-700">
+              {showAll
+                ? `all ${filteredQuestions.length}`
+                : `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, filteredQuestions.length)} of ${filteredQuestions.length}`}
+            </span>{' '}
+            questions
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAll(!showAll)}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+            >
+              {showAll ? 'Show paginated' : `Show all (${filteredQuestions.length})`}
+            </button>
+
+            {!showAll && totalPages > 1 && (
+              <div className="flex items-center gap-1 ml-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="px-2 py-1 rounded border border-slate-200 bg-white text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Prev
+                </button>
+                <span className="px-2 font-mono text-xs text-slate-500">
+                  {currentPage}/{totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="px-2 py-1 rounded border border-slate-200 bg-white text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Next
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setActiveQuestion(null)}
-                aria-label="Close customization drawer"
-                className="rounded-md p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Drawer Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs">
-              {/* Option chips preview (for choice questions) */}
-              {activeQuestion.options?.length > 0 && (
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Defined Options ({activeQuestion.options.length})
-                  </label>
-                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1 border border-slate-100 rounded-md bg-slate-50/50">
-                    {activeQuestion.options.map((opt, i) => (
-                      <span
-                        key={i}
-                        className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700 truncate max-w-[200px]"
-                        title={opt}
-                      >
-                        {opt}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Linear Scale details */}
-              {activeQuestion.scaleRange && (
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
-                  <span className="text-[11px] font-medium text-slate-500 block mb-1">
-                    Linear Scale Range: {activeQuestion.scaleRange.min} to {activeQuestion.scaleRange.max}
-                  </span>
-                  {(activeQuestion.scaleRange.minLabel || activeQuestion.scaleRange.maxLabel) && (
-                    <p className="text-[11px] text-slate-600">
-                      {activeQuestion.scaleRange.minLabel && `"${activeQuestion.scaleRange.minLabel}"`}
-                      {' → '}
-                      {activeQuestion.scaleRange.maxLabel && `"${activeQuestion.scaleRange.maxLabel}"`}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Answer Mode Selector */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-800 mb-1.5">
-                  Answer Generation Mode
-                </label>
-                <div className="grid grid-cols-1 gap-1.5">
-                  {[
-                    { id: 'default', label: 'Default', desc: 'Inherit overall response mix' },
-                    { id: 'random', label: 'Random', desc: 'Pure uniform random choice' },
-                    { id: 'fixed', label: 'Fixed Answer', desc: 'Always use a specific constant answer' },
-                    { id: 'mix', label: 'Own Sentiment Mix', desc: 'Custom tone balance for this question' },
-                    { id: 'pool', label: 'Custom Pool', desc: 'Pick randomly from an uploaded dataset' },
-                  ].map((m) => {
-                    const currentMode = activeOverride?.mode || 'default';
-                    const isSelected = currentMode === m.id;
-
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => {
-                          if (m.id === 'default') {
-                            handleUpdateOverride({ mode: 'default' });
-                          } else if (m.id === 'fixed') {
-                            const defaultFixed = activeQuestion.options?.[0] || '';
-                            handleUpdateOverride({ mode: 'fixed', value: defaultFixed });
-                          } else if (m.id === 'mix') {
-                            handleUpdateOverride({
-                              mode: 'mix',
-                              mix: activeOverride?.mix || { positive: 70, neutral: 20, negative: 10 },
-                            });
-                          } else if (m.id === 'pool') {
-                            handleUpdateOverride({
-                              mode: 'pool',
-                              poolName: activeOverride?.poolName || poolNames[0] || '',
-                            });
-                          } else if (m.id === 'random') {
-                            handleUpdateOverride({ mode: 'random' });
-                          }
-                        }}
-                        className={`flex items-start justify-between p-2.5 rounded-md border text-left cursor-pointer transition-colors ${
-                          isSelected
-                            ? 'bg-blue-50/60 border-blue-300 ring-1 ring-blue-500'
-                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div>
-                          <span className={`block font-medium ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>
-                            {m.label}
-                          </span>
-                          <span className="text-[11px] text-slate-500">{m.desc}</span>
-                        </div>
-                        {isSelected && <Check className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Fixed Answer Options */}
-              {activeOverride?.mode === 'fixed' && (
-                <div className="space-y-1.5 p-3 rounded-md bg-slate-50 border border-slate-200">
-                  <label className="block font-medium text-slate-700">Fixed Value</label>
-                  {activeQuestion.options?.length > 0 ? (
-                    <select
-                      value={activeOverride.value || ''}
-                      onChange={(e) => handleUpdateOverride({ mode: 'fixed', value: e.target.value })}
-                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
-                    >
-                      {activeQuestion.options.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder="Specify fixed text..."
-                      value={activeOverride.value || ''}
-                      onChange={(e) => handleUpdateOverride({ mode: 'fixed', value: e.target.value })}
-                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
-                    />
-                  )}
-                </div>
-              )}
-
-              {/* Custom Pool Options */}
-              {activeOverride?.mode === 'pool' && (
-                <div className="space-y-1.5 p-3 rounded-md bg-slate-50 border border-slate-200">
-                  <label className="block font-medium text-slate-700">Source Pool</label>
-                  {poolNames.length > 0 ? (
-                    <select
-                      value={activeOverride.poolName || poolNames[0]}
-                      onChange={(e) => handleUpdateOverride({ mode: 'pool', poolName: e.target.value })}
-                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
-                    >
-                      {poolNames.map((p) => (
-                        <option key={p} value={p}>
-                          {p} ({pools[p]?.length || 0} items)
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <p className="text-slate-500 italic">
-                      No custom pools created yet. Add one in the Settings panel on the right.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Custom Mix Sliders */}
-              {activeOverride?.mode === 'mix' && (
-                <div className="space-y-3 p-3 rounded-md bg-slate-50 border border-slate-200">
-                  <label className="block font-medium text-slate-700">Custom Mix Balance</label>
-                  {['positive', 'neutral', 'negative'].map((key) => {
-                    const mix = activeOverride.mix || { positive: 70, neutral: 20, negative: 10 };
-                    return (
-                      <div key={key}>
-                        <div className="flex justify-between text-[11px] mb-1 capitalize">
-                          <span className="font-medium text-slate-700">{key}</span>
-                          <span className="font-mono text-slate-500">{mix[key]}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={mix[key]}
-                          onChange={(e) => {
-                            const val = Math.max(0, Math.min(100, Number(e.target.value)));
-                            const others = ['positive', 'neutral', 'negative'].filter((k) => k !== key);
-                            const remaining = 100 - val;
-                            const currentOtherSum = mix[others[0]] + mix[others[1]];
-                            let n1 = currentOtherSum === 0 ? Math.floor(remaining / 2) : Math.round((mix[others[0]] / currentOtherSum) * remaining);
-                            let n2 = remaining - n1;
-                            handleUpdateOverride({
-                              mode: 'mix',
-                              mix: {
-                                [key]: val,
-                                [others[0]]: Math.max(0, n1),
-                                [others[1]]: Math.max(0, n2),
-                              },
-                            });
-                          }}
-                          className="w-full cursor-pointer accent-blue-600"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Style Hint Field (max 100 chars) */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-slate-800">
-                    Style Hint <span className="font-normal text-slate-400">(optional)</span>
-                  </label>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    {(activeOverride?.styleHint || '').length}/100
-                  </span>
-                </div>
-                <input
-                  type="text"
-                  maxLength={100}
-                  placeholder="e.g. Concise and direct, focus on battery life"
-                  value={activeOverride?.styleHint || ''}
-                  onChange={(e) => handleUpdateOverride({ styleHint: e.target.value })}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Instructs the generation engine on specific phrasing or thematic focus.
-                </p>
-              </div>
-            </div>
-
-            {/* Drawer Footer */}
-            <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleResetOverride}
-                disabled={!activeOverride}
-                icon={RotateCcw}
-              >
-                Reset to Default
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                onClick={() => setActiveQuestion(null)}
-              >
-                Done
-              </Button>
-            </div>
+            )}
           </div>
         </div>
+      )}
+
+      {/* Customize Drawer Modal */}
+      {activeQuestion && (
+        <QuestionDrawer
+          question={activeQuestion}
+          override={activeOverride}
+          onSave={handleSaveOverride}
+          onReset={handleResetOverride}
+          onClose={() => setActiveQuestion(null)}
+          pools={pools}
+        />
       )}
     </div>
   );

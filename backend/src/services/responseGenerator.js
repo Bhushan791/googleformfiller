@@ -23,6 +23,10 @@ import { hasLLM } from "./llm/index.js";
 // ---------------------------------------------------------------------------
 
 export const generatorSettingsSchema = z.object({
+  audienceMode: z
+    .enum(["auto", "prelaunch", "launched", "event", "research", "custom"])
+    .default("auto"),
+  scenario: z.string().max(400).optional().default(""),
   mix: sentimentMixSchema.default({ positive: 70, neutral: 20, negative: 10 }),
   count: z.number().int().min(1).max(500).default(5),
   perQuestion: z.record(questionOverrideSchema).default({}),
@@ -156,6 +160,7 @@ export async function generateResponses({
           styleHint: settings?.styleHint,
           generateTextFn: explicitNoLLM ? null : generateTextFn,
           formKey,
+          settings,
         });
 
         if (usedLLM) metadata.usedLLM = true;

@@ -4,8 +4,9 @@ services:
     env: node
     plan: free
     region: oregon
-    buildCommand: cd backend && npm install
-    startCommand: cd backend && npm start
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -14,10 +15,11 @@ services:
         value: 5000
       - key: FRONTEND_URL
         sync: false
-      - key: GEMINI_KEY
-        sync: false
       - key: GROQ_KEY
+        sync: false
+      - key: OPENROUTER_KEY
+        sync: false
+      - key: ACCESS_CODE
         sync: false
       - key: REDIS_URL
         sync: false
-

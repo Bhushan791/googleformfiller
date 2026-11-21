@@ -1,13 +1,13 @@
 {
   "name": "formbot-backend",
   "version": "1.0.0",
-  "description": "Backend API for Form Auto Filler — generates and submits test responses to Google Forms.",
+  "description": "Backend API for Autofillr — generates and submits test responses to Google Forms.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test src/formParser.test.js src/responseGenerator.test.js src/submission.test.js src/llm.test.js src/prewarm.test.js src/production.test.js",
+    "test": "node --test src/formParser.test.js src/responseGenerator.test.js src/submission.test.js src/llm.test.js src/prewarm.test.js src/production.test.js src/audienceMode.test.js",
     "inspect-form": "node src/scripts/inspectForm.js",
     "test-llm": "node src/scripts/testLLM.js"
   },

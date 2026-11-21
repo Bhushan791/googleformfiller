@@ -30,6 +30,7 @@ router.get("/status", async (_req, res) => {
   }));
 
   res.json({
+    name: "Autofillr",
     redis,
     llm,
     uptime: Math.floor(process.uptime()),

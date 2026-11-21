@@ -17,29 +17,25 @@ const ERROR_MESSAGES = {
 };
 
 /**
- * Displays a user-friendly error message with a "Try another link" ghost button.
+ * Displays a user-friendly error message with a "Try again" button.
  */
 export default function ErrorMessage({ error, onRetry }) {
   const friendlyMessage =
-    ERROR_MESSAGES[error?.errorCode] ?? error?.message ?? "Failed to load Google Form.";
+    ERROR_MESSAGES[error?.errorCode] ?? error?.message ?? 'Failed to load Google Form.';
 
   return (
-    <div className="w-full space-y-3">
-      <Alert
-        variant="error"
-        title="Could not load form"
-      >
+    <div className="w-full">
+      <Alert variant="error" title="Could not load form">
         <p className="mt-1 text-xs text-rose-700">{friendlyMessage}</p>
         {onRetry && (
           <div className="mt-3">
             <Button
               type="button"
-              variant="ghost"
-              size="sm"
+              variant="secondary"
+              size="md"
               onClick={onRetry}
-              className="text-rose-700 hover:text-rose-800 hover:bg-rose-100/50 -ml-2"
             >
-              Try another link
+              Try again
             </Button>
           </div>
         )}

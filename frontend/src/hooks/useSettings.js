@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
 
 const DEFAULT_SETTINGS = {
+  audienceMode: 'auto',
+  scenario: '',
   mix: { positive: 70, neutral: 20, negative: 10 },
   count: 50,
   perQuestion: {},
@@ -14,6 +16,15 @@ export default function useSettings(initial = {}) {
     ...DEFAULT_SETTINGS,
     ...initial,
   });
+
+  const setAudienceMode = useCallback((mode) => {
+    setSettings((prev) => ({ ...prev, audienceMode: mode }));
+  }, []);
+
+  const setScenario = useCallback((scenario) => {
+    const trimmed = (scenario || '').slice(0, 400);
+    setSettings((prev) => ({ ...prev, scenario: trimmed }));
+  }, []);
 
   const setMix = useCallback((newMix) => {
     setSettings((prev) => ({ ...prev, mix: newMix }));
@@ -81,6 +92,8 @@ export default function useSettings(initial = {}) {
 
   return {
     settings,
+    setAudienceMode,
+    setScenario,
     setMix,
     setCount,
     setQuestionOverride,

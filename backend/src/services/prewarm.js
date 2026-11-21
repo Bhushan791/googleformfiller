@@ -1,7 +1,13 @@
 import { z } from "zod";
 import answerCache from "./answerCache.js";
 import { generateText, hasLLM } from "./llm/index.js";
-import { detectObviousFieldType, stripMarkdownFences } from "./textGenerator.js";
+import {
+  detectObviousFieldType,
+  stripMarkdownFences,
+  buildModeInstructions,
+  filterDiverseAnswers,
+  hasPastExperiencePhrasing,
+} from "./textGenerator.js";
 import { setCache as setOptionCache, getCacheKey as getOptionCacheKey } from "./sentimentEngine.js";
 
 // Active warming locks to ensure the same formKey is never warmed twice at once
@@ -10,6 +16,14 @@ const warmingLocks = new Set();
 const refillLocks = new Set();
 
 const combinedPrewarmSchema = z.object({
+  detection: z
+    .object({
+      mode: z.string().optional(),
+      confidence: z.number().optional(),
+      reason: z.string().optional(),
+      audience: z.string().optional(),
+    })
+    .optional(),
   text: z
     .record(
       z.object({
@@ -42,6 +56,7 @@ export async function prewarmForm({
   formKey,
   questions = [],
   formContext = null,
+  settings = {},
   generateTextFn = null,
   skipTopUp = false,
 }) {
@@ -97,11 +112,26 @@ export async function prewarmForm({
     // Build single combined prompt
     const contextTitle = (formContext?.title || "").trim();
     const contextDesc = (formContext?.description || "").trim().slice(0, 500);
+    const scenario = (settings?.scenario || "").trim().slice(0, 400);
 
     const contextSection =
       contextTitle || contextDesc
-        ? `Form Title: "${contextTitle}"\n${contextDesc ? `Description: "${contextDesc}"\n` : ""}`
+        ? `Form Title: "${contextTitle}"\n${contextDesc ? `Description: "${contextDesc}"\n` : ""}${
+            scenario ? `Scenario note: "${scenario}"\n` : ""
+          }`
         : "";
+
+    // Include all survey questions for mode detection (skipping obvious identity fields like name/email/phone)
+    const surveyQuestions = (questions || []).filter(
+      (q) => !detectObviousFieldType(q?.title || "")
+    );
+
+    const allQuestionsSummary = surveyQuestions
+      .map((q, idx) => {
+        const opts = q.options?.length ? ` | Options: ${JSON.stringify(q.options.slice(0, 8))}` : "";
+        return `${idx + 1}. [${q.type}] "${q.title}"${opts}`;
+      })
+      .join("\n");
 
     let textPromptPart = "";
     if (aiTextQuestions.length > 0) {
@@ -138,10 +168,36 @@ ${items}
 For EACH choice question, classify every option as "positive", "neutral", "negative", or "n/a".\n`;
     }
 
+    const requestedMode = settings?.audienceMode || "auto";
+    const modeRules = buildModeInstructions(
+      requestedMode !== "auto" ? requestedMode : "auto",
+      scenario
+    );
+
     const prompt = `You are an AI pre-generating realistic test data and sentiment classifications for a Google Form.
-${contextSection}${textPromptPart}${choicePromptPart}
+${contextSection}
+All Form Questions:
+${allQuestionsSummary}
+${textPromptPart}${choicePromptPart}
+STEP 1: Detect the audience mode of this form based on its title, description, and questions.
+Choose one of:
+- "prelaunch": Product or service NOT yet released/launched (waitlists, concept interest, feature requests, prototypes).
+- "launched": Active product or service already in use by customers.
+- "event": Event, seminar, workshop, conference, or meetup attendance feedback.
+- "research": General demographic, lifestyle, user habits, or academic survey without product in use.
+If you are unsure or confidence < 0.6, classify as "research".
+
+STEP 2: Generate text answers and option classifications adhering strictly to these mode rules:
+${modeRules}
+
 Output a single valid JSON object strictly matching this schema:
 {
+  "detection": {
+    "mode": "prelaunch" | "launched" | "event" | "research",
+    "confidence": 0.0 to 1.0,
+    "reason": "one short line explaining why this mode fits",
+    "audience": "one line describing the respondent audience"
+  },
   "text": {
     "<questionId>": {
       "positive": ["8 unique positive answers..."],
@@ -185,6 +241,31 @@ Respond ONLY with the JSON object.`;
       }
     }
 
+    // Process audience detection
+    const det = result.detection || {};
+    const validModes = ["prelaunch", "launched", "event", "research"];
+    let detectedMode = validModes.includes(det.mode) ? det.mode : "research";
+    let confidence =
+      typeof det.confidence === "number"
+        ? Math.max(0, Math.min(1, det.confidence))
+        : 0.7;
+    let reason = (det.reason || "Audience survey inferred from form context").slice(0, 200);
+    let audience = (det.audience || "General respondents").slice(0, 200);
+
+    if (confidence < 0.6) {
+      detectedMode = "research";
+    }
+
+    const effectiveMode = requestedMode === "auto" ? detectedMode : requestedMode;
+
+    answerCache.setDetection(formKey, {
+      detectedMode,
+      confidence,
+      reason,
+      audience,
+      effectiveMode,
+    });
+
     // Populate option classifications
     if (result.options) {
       for (const [qid, optionMap] of Object.entries(result.options)) {
@@ -198,17 +279,20 @@ Respond ONLY with the JSON object.`;
       }
     }
 
-    // Populate text answer buffers (8 answers per sentiment)
+    // Populate text answer buffers (8 answers per sentiment) with diversity and blocklist filters
     if (result.text) {
       for (const [qid, sentiments] of Object.entries(result.text)) {
-        if (sentiments.positive?.length) {
-          answerCache.pushAnswers(formKey, qid, "positive", sentiments.positive);
-        }
-        if (sentiments.neutral?.length) {
-          answerCache.pushAnswers(formKey, qid, "neutral", sentiments.neutral);
-        }
-        if (sentiments.negative?.length) {
-          answerCache.pushAnswers(formKey, qid, "negative", sentiments.negative);
+        for (const sent of ["positive", "neutral", "negative"]) {
+          let answers = sentiments[sent] || [];
+          // Filter exact and near duplicates (Jaccard > 0.7)
+          answers = filterDiverseAnswers(answers, { maxJaccard: 0.7 });
+          // Enforce past experience blocklist for prelaunch and research
+          if (effectiveMode === "prelaunch" || effectiveMode === "research") {
+            answers = answers.filter((ans) => !hasPastExperiencePhrasing(ans));
+          }
+          if (answers.length > 0) {
+            answerCache.pushAnswers(formKey, qid, sent, answers);
+          }
         }
       }
     }
@@ -225,6 +309,7 @@ Respond ONLY with the JSON object.`;
           formKey,
           questions: aiTextQuestions,
           formContext,
+          settings,
           generateTextFn,
         }).catch((e) => {
           console.warn("⚠️ Background top-up error:", e.message);
@@ -242,7 +327,7 @@ Respond ONLY with the JSON object.`;
 /**
  * Tops up text buffers to ~20 answers per sentiment in the background.
  */
-async function topUpBuffers({ formKey, questions = [], formContext, generateTextFn }) {
+async function topUpBuffers({ formKey, questions = [], formContext, settings = {}, generateTextFn }) {
   for (const q of questions) {
     const qid = q.id || q.entryId;
     for (const sent of ["positive", "neutral", "negative"]) {
@@ -255,6 +340,7 @@ async function topUpBuffers({ formKey, questions = [], formContext, generateText
           sentiment: sent,
           count: Math.min(20, needed),
           formContext,
+          settings,
           generateTextFn,
         }).catch(() => {});
       }
@@ -272,6 +358,7 @@ export async function refillBuffer({
   sentiment,
   count = 20,
   formContext = null,
+  settings = null,
   styleHint = null,
   generateTextFn = null,
 }) {
@@ -305,10 +392,25 @@ export async function refillBuffer({
           }`
         : "";
 
+    const cached = answerCache.get(formKey);
+    const requestedMode = settings?.audienceMode;
+    let effectiveMode = "research";
+    if (requestedMode && requestedMode !== "auto") {
+      effectiveMode = requestedMode;
+    } else if (cached?.effectiveMode) {
+      effectiveMode = cached.effectiveMode;
+    } else if (cached?.detectedMode) {
+      effectiveMode = cached.detectedMode;
+    }
+    const scenario = settings?.scenario || "";
+    const modeInstructions = buildModeInstructions(effectiveMode, scenario);
+
     const styleHintBlock = styleHint ? `\nStyle hint: ${styleHint}\n` : "";
 
     const prompt = `You are generating realistic test responses for a public Google Form survey question.
-${contextBlock}${styleHintBlock}Generate a JSON array of exactly ${safeCount} varied, natural, and distinct responses with a **${sentiment}** sentiment.
+${contextBlock}
+${modeInstructions}
+${styleHintBlock}Generate a JSON array of exactly ${safeCount} varied, natural, and distinct responses with a **${sentiment}** sentiment.
 ${lengthInstruction}
 Do NOT include numbers or bullet points inside the answer strings.
 
@@ -326,9 +428,17 @@ Respond ONLY with a valid JSON array of strings:
     });
 
     const cleaned = stripMarkdownFences(raw || "[]");
-    const parsed = JSON.parse(cleaned);
+    let parsed = JSON.parse(cleaned);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      answerCache.pushAnswers(formKey, qid, sentiment, parsed);
+      // Filter near duplicates (Jaccard > 0.7)
+      parsed = filterDiverseAnswers(parsed, { maxJaccard: 0.7 });
+      // Block past experience phrasing in prelaunch & research
+      if (effectiveMode === "prelaunch" || effectiveMode === "research") {
+        parsed = parsed.filter((ans) => !hasPastExperiencePhrasing(ans));
+      }
+      if (parsed.length > 0) {
+        answerCache.pushAnswers(formKey, qid, sentiment, parsed);
+      }
     }
   } catch (err) {
     console.warn(`⚠️ Background refill error for ${qid} (${sentiment}):`, err.message);

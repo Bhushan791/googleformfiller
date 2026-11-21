@@ -1,251 +1,436 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { RotateCw, Info, Sparkles, X, CheckCircle2, ChevronRight } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { 
+  RotateCw, 
+  Copy, 
+  LayoutGrid, 
+  Table as TableIcon, 
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Filter
+} from 'lucide-react';
 import Button from './ui/Button';
 import Badge from './ui/Badge';
+import Alert from './ui/Alert';
+import Skeleton from './ui/Skeleton';
+import EmptyState from './ui/EmptyState';
+import { useToast } from './ui/Toast';
 
 const SENTIMENT_BADGES = {
-  positive: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  neutral: 'bg-slate-100 text-slate-700 border-slate-200',
-  negative: 'bg-rose-50 text-rose-700 border-rose-200',
+  positive: { variant: 'success', label: 'Positive' },
+  neutral: { variant: 'neutral', label: 'Neutral' },
+  negative: { variant: 'danger', label: 'Negative' },
 };
+
+function AnswerText({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = (text || '').length > 180;
+
+  if (!text) {
+    return <span className="text-slate-400 italic text-xs">No response</span>;
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className={`text-xs text-slate-900 leading-relaxed break-words ${expanded ? '' : 'line-clamp-4'}`}>
+        {text}
+      </p>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="text-[11px] font-medium text-blue-600 hover:text-blue-800 cursor-pointer inline-flex items-center gap-0.5"
+        >
+          <span>{expanded ? 'Show less' : 'Show more'}</span>
+          {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function DryRunTable({
   responses = [],
   questions = [],
   metadata = {},
+  detectionInfo = null,
   onRegenerate,
+  onBack,
+  onContinue,
   loading = false,
+  error = null,
 }) {
-  const [selectedResponse, setSelectedResponse] = useState(null);
-  const detailDrawerRef = useRef(null);
+  const { addToast } = useToast();
+  const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table'
+  const [selectedSentiment, setSelectedSentiment] = useState('all'); // 'all' | 'positive' | 'neutral' | 'negative'
+  const [textOnly, setTextOnly] = useState(false);
 
-  // Esc closes response detail drawer
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') setSelectedResponse(null);
-    };
-    if (selectedResponse) {
-      window.addEventListener('keydown', handleKeyDown);
+  // Filter questions if "Show only text answers" is checked
+  const visibleQuestions = useMemo(() => {
+    if (!textOnly) return questions;
+    return questions.filter((q) => ['short_text', 'paragraph'].includes(q.type));
+  }, [questions, textOnly]);
+
+  // Filter responses by sentiment
+  const filteredResponses = useMemo(() => {
+    if (selectedSentiment === 'all') return responses;
+    return responses.filter((r) => r.sentiment === selectedSentiment);
+  }, [responses, selectedSentiment]);
+
+  // Copy sample as CSV
+  const handleCopyCsv = () => {
+    if (!responses.length || !questions.length) return;
+    try {
+      const headers = ['#', 'Sentiment', ...questions.map((q) => `"${(q.title || '').replace(/"/g, '""')}"`)];
+      const rows = responses.map((r, idx) => {
+        const rowAns = questions.map((q) => {
+          const val = r.answers ? r.answers[q.entryId] : '';
+          const str = Array.isArray(val) ? val.join(', ') : (val ?? '');
+          return `"${String(str).replace(/"/g, '""')}"`;
+        });
+        return [idx + 1, r.sentiment, ...rowAns].join(',');
+      });
+
+      const csvContent = [headers.join(','), ...rows].join('\n');
+      navigator.clipboard?.writeText(csvContent).then(() => {
+        addToast('Sample data copied as CSV', 'success');
+      }).catch(() => {
+        addToast('Failed to copy to clipboard', 'error');
+      });
+    } catch {
+      addToast('Error formatting CSV', 'error');
     }
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedResponse]);
+  };
+
+  const isFallback = metadata?.fallbackUsed || false;
+  const detectedMode = detectionInfo?.detectedMode;
+  const detectedConfidence = Math.round((detectionInfo?.confidence || 0) * 100);
+
+  // Loading skeleton state
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+              <div className="flex justify-between items-center">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-5 w-16" />
+              </div>
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="error" title="Preview Generation Failed">
+          <p className="mt-1 text-xs text-rose-700">{error}</p>
+          {onRegenerate && (
+            <div className="mt-3">
+              <Button type="button" variant="secondary" size="md" onClick={onRegenerate} icon={RotateCw}>
+                Retry Generation
+              </Button>
+            </div>
+          )}
+        </Alert>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full space-y-4">
-      {/* Header Row: Title, Regenerate button, AI source note */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-200">
-        <div>
+    <div className="w-full space-y-5">
+      {/* 1. Header row: Title, Source note, Audience badge, Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+        <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-base font-semibold text-slate-900">Dry Run Preview</h3>
-            <Badge variant="info">5 Samples</Badge>
+            <h3 className="text-base font-semibold text-slate-900">
+              Dry Run Preview
+            </h3>
+            <Badge variant="neutral" className="text-xs font-mono">
+              {responses.length} {responses.length === 1 ? 'sample' : 'samples'}
+            </Badge>
+
+            {/* Detected Audience Mode Badge */}
+            {detectedMode && (
+              <Badge variant="info" className="text-xs">
+                Audience: {detectedMode} ({detectedConfidence}%)
+              </Badge>
+            )}
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {metadata?.fallbackUsed ? (
+
+          <p className="text-xs text-slate-500">
+            {isFallback ? (
               <span className="text-amber-700 font-medium">
-                Source: Basic templates (LLM key not configured or unavailable)
+                Source: Basic templates (local fallback)
               </span>
             ) : (
               <span className="text-emerald-700 font-medium">
-                Source: Dynamic AI generation
+                Source: AI contextual answers
               </span>
             )}
           </p>
         </div>
 
-        {onRegenerate && (
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2">
           <Button
             type="button"
-            variant="secondary"
-            size="sm"
-            onClick={onRegenerate}
-            loading={loading}
-            icon={RotateCw}
+            variant="ghost"
+            size="md"
+            onClick={handleCopyCsv}
+            icon={Copy}
+            title="Copy all sample responses as CSV"
           >
-            Regenerate Sample
+            Copy sample as CSV
           </Button>
-        )}
+
+          {onRegenerate && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={onRegenerate}
+              loading={loading}
+              icon={RotateCw}
+            >
+              Regenerate
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Fallback Notice Banner if applicable */}
-      {metadata?.fallbackUsed && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 flex items-start gap-2">
-          <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" strokeWidth={1.75} />
-          <div>
-            <span className="font-semibold">Local Template Engine Active:</span> Answers generated using heuristic pattern-matching. Add <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-[11px]">GROQ_KEY</code> or <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-[11px]">OPENROUTER_KEY</code> to enable LLM contextual answers.
-          </div>
-        </div>
+      {/* 2. Warning Alert when answers come from templates */}
+      {isFallback && (
+        <Alert variant="warning" title="Basic Templates Active">
+          <p className="mt-0.5 text-xs text-amber-800 leading-relaxed">
+            AI generation was unavailable or rate-limited. Answers were synthesized using local fallback template patterns. Add a valid <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-[11px]">GROQ_KEY</code> or <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-[11px]">OPENROUTER_KEY</code> to enable full LLM generation.
+          </p>
+        </Alert>
       )}
 
-      {/* Table Container: Horizontal scroll only inside table container */}
-      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden shadow-none">
-        <div className="overflow-x-auto max-w-full">
-          <table className="min-w-full divide-y divide-slate-200 text-left text-xs border-collapse">
-            <thead className="bg-slate-50 text-slate-600 font-semibold select-none">
-              <tr>
-                {/* Sticky first column */}
-                <th
-                  scope="col"
-                  className="sticky left-0 z-20 bg-slate-50 px-3 py-2.5 whitespace-nowrap w-16 text-center border-r border-slate-200 shadow-[1px_0_0_0_rgba(226,232,240,1)]"
-                >
-                  #
-                </th>
-                <th scope="col" className="px-3 py-2.5 whitespace-nowrap w-24">
-                  Sentiment
-                </th>
-                {questions.map((q, idx) => (
-                  <th
-                    key={q.entryId || idx}
-                    scope="col"
-                    className="px-3 py-2.5 whitespace-nowrap max-w-[200px] truncate"
-                    title={q.title}
-                  >
-                    {q.title || `Q${idx + 1}`}
-                  </th>
-                ))}
-                <th scope="col" className="px-3 py-2.5 text-right w-16">
-                  Details
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {responses.map((resp, rIdx) => {
-                const badgeClass =
-                  SENTIMENT_BADGES[resp.sentiment] || SENTIMENT_BADGES.neutral;
+      {/* 3. Toolbar: View toggle (Cards | Table) + Filters (Sentiment + Text-only) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-lg border border-slate-200">
+        {/* Left: Sentiment Filter Chips */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-medium text-slate-500 mr-1 flex items-center gap-1">
+            <Filter className="w-3.5 h-3.5" /> Sentiment:
+          </span>
+          {['all', 'positive', 'neutral', 'negative'].map((sent) => {
+            const isSelected = selectedSentiment === sent;
+            return (
+              <button
+                key={sent}
+                type="button"
+                onClick={() => setSelectedSentiment(sent)}
+                className={`px-2.5 py-1 text-xs rounded-md capitalize font-medium transition-colors cursor-pointer border ${
+                  isSelected
+                    ? 'bg-slate-900 border-slate-900 text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {sent}
+              </button>
+            );
+          })}
+        </div>
 
-                return (
-                  <tr
-                    key={resp.index ?? rIdx}
-                    onClick={() => setSelectedResponse({ ...resp, rowNum: rIdx + 1 })}
-                    className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
-                  >
-                    {/* Sticky first column */}
-                    <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50/80 px-3 py-2.5 text-center font-mono text-slate-500 border-r border-slate-200 font-medium">
-                      {rIdx + 1}
-                    </td>
+        {/* Right: Text-only toggle & View Switcher */}
+        <div className="flex items-center gap-3">
+          {/* Text-only toggle */}
+          <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={textOnly}
+              onChange={(e) => setTextOnly(e.target.checked)}
+              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>Show only text answers</span>
+          </label>
 
-                    <td className="px-3 py-2.5 whitespace-nowrap">
-                      <span
-                        className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium border capitalize ${badgeClass}`}
-                      >
-                        {resp.sentiment}
-                      </span>
-                    </td>
+          <div className="h-4 w-px bg-slate-200 hidden sm:block" />
 
-                    {questions.map((q, qIdx) => {
-                      const ans = resp.answers ? resp.answers[q.entryId] : undefined;
-                      let displayAns = '—';
-                      if (ans !== undefined && ans !== null && ans !== '') {
-                        displayAns = Array.isArray(ans) ? ans.join(', ') : String(ans);
-                      }
-
-                      return (
-                        <td
-                          key={q.entryId || qIdx}
-                          className="px-3 py-2.5 text-slate-700 max-w-[220px] truncate"
-                          title={displayAns}
-                        >
-                          {displayAns}
-                        </td>
-                      );
-                    })}
-
-                    <td className="px-3 py-2.5 text-right">
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-700 inline" />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          {/* Cards | Table View Toggle */}
+          <div className="inline-flex rounded-md border border-slate-200 p-0.5 bg-slate-100">
+            <button
+              type="button"
+              onClick={() => setViewMode('cards')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                viewMode === 'cards'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>Cards</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                viewMode === 'table'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <TableIcon className="w-3.5 h-3.5" />
+              <span>Table</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-400 text-right">
-        Tip: Click any row to view full responses in a side drawer.
-      </p>
+      {/* 4. Main Preview Content: Cards View (Default) OR Table View */}
+      {filteredResponses.length === 0 ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-8">
+          <EmptyState
+            title="No responses match the filter"
+            description="Try selecting a different sentiment filter or clearing 'Show only text answers'."
+          />
+        </div>
+      ) : viewMode === 'cards' ? (
+        /* RESPONSE CARDS GRID (1 col mobile, 2 col desktop) */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {filteredResponses.map((resp, rIdx) => {
+            const badgeCfg = SENTIMENT_BADGES[resp.sentiment] || SENTIMENT_BADGES.neutral;
+            const originalIndex = responses.indexOf(resp) + 1;
 
-      {/* Response Detail Drawer */}
-      {selectedResponse && (
-        <div
-          className="fixed inset-0 z-50 overflow-hidden bg-slate-900/40 backdrop-blur-[2px] flex justify-end animate-in fade-in duration-150"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setSelectedResponse(null)}
-        >
-          <div
-            ref={detailDrawerRef}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col focus:outline-none animate-in slide-in-from-right duration-200"
-          >
-            {/* Drawer Header */}
-            <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                    Sample Response #{selectedResponse.rowNum}
-                  </span>
-                  <span
-                    className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium border capitalize ${
-                      SENTIMENT_BADGES[selectedResponse.sentiment] || SENTIMENT_BADGES.neutral
-                    }`}
-                  >
-                    {selectedResponse.sentiment}
-                  </span>
-                </div>
-                <h3 className="text-sm font-semibold text-slate-900 mt-1">
-                  Full Submission Breakdown
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedResponse(null)}
-                className="rounded-md p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+            return (
+              <div
+                key={resp.index ?? rIdx}
+                className="rounded-lg border border-slate-200 bg-white p-4 space-y-3.5 hover:border-slate-300 transition-colors shadow-none"
               >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Drawer Content */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
-              {questions.map((q, idx) => {
-                const ans = selectedResponse.answers ? selectedResponse.answers[q.entryId] : undefined;
-                let displayAns = '—';
-                if (ans !== undefined && ans !== null && ans !== '') {
-                  displayAns = Array.isArray(ans) ? ans.join(', ') : String(ans);
-                }
-
-                return (
-                  <div key={q.entryId || idx} className="p-3 rounded-md bg-slate-50 border border-slate-200 space-y-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-semibold text-slate-800">
-                        {idx + 1}. {q.title}
-                      </span>
-                      <Badge variant="neutral" className="text-[10px] shrink-0">
-                        {q.type}
-                      </Badge>
-                    </div>
-                    {q.helpText && (
-                      <p className="text-[11px] text-slate-400">{q.helpText}</p>
-                    )}
-                    <div className="mt-1.5 pt-1.5 border-t border-slate-200/60 font-mono text-slate-900 text-xs break-words">
-                      {displayAns}
-                    </div>
+                {/* Card Header: Response #N + Sentiment Badge */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-semibold text-slate-900">
+                      Response #{originalIndex}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
+                  <Badge variant={badgeCfg.variant} className="text-[11px] capitalize">
+                    {badgeCfg.label}
+                  </Badge>
+                </div>
 
-            {/* Drawer Footer */}
-            <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50">
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                onClick={() => setSelectedResponse(null)}
-              >
-                Close
-              </Button>
-            </div>
+                {/* Compact list of Question: Answer rows */}
+                <div className="space-y-3">
+                  {visibleQuestions.map((q, qIdx) => {
+                    const ans = resp.answers ? resp.answers[q.entryId] : undefined;
+                    const isText = ['short_text', 'paragraph'].includes(q.type);
+                    const formattedAns = Array.isArray(ans) ? ans.join(', ') : (ans ?? '');
+
+                    return (
+                      <div key={q.entryId || qIdx} className="space-y-1">
+                        <span
+                          className="text-xs font-semibold text-slate-700 truncate block"
+                          title={q.title}
+                        >
+                          {q.title || `Question ${qIdx + 1}`}
+                        </span>
+
+                        {isText ? (
+                          <div className="bg-slate-50 border border-slate-200/80 rounded-md p-2.5">
+                            <AnswerText text={formattedAns} />
+                          </div>
+                        ) : (
+                          <div>
+                            {formattedAns ? (
+                              <span
+                                className="text-xs font-medium text-slate-900 bg-slate-100 border border-slate-200 rounded px-2 py-0.5 inline-block truncate max-w-full"
+                                title={formattedAns}
+                              >
+                                {formattedAns}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic text-xs">—</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* TABLE VIEW: Sticky first col, tooltips on headers, min-w-[160px], scrolls inside container only */
+        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden shadow-none">
+          <div className="overflow-x-auto max-w-full">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-xs border-collapse">
+              <thead className="bg-slate-50 text-slate-600 font-semibold select-none">
+                <tr>
+                  {/* Sticky first column */}
+                  <th
+                    scope="col"
+                    className="sticky left-0 z-20 bg-slate-50 px-3 py-2.5 whitespace-nowrap w-16 text-center border-r border-slate-200"
+                  >
+                    #
+                  </th>
+                  <th scope="col" className="px-3 py-2.5 whitespace-nowrap w-24">
+                    Sentiment
+                  </th>
+                  {visibleQuestions.map((q, idx) => (
+                    <th
+                      key={q.entryId || idx}
+                      scope="col"
+                      className="px-3 py-2.5 whitespace-nowrap min-w-[160px] max-w-[240px] truncate"
+                      title={q.title}
+                    >
+                      {q.title || `Q${idx + 1}`}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {filteredResponses.map((resp, rIdx) => {
+                  const badgeCfg = SENTIMENT_BADGES[resp.sentiment] || SENTIMENT_BADGES.neutral;
+                  const originalIndex = responses.indexOf(resp) + 1;
+
+                  return (
+                    <tr key={resp.index ?? rIdx} className="hover:bg-slate-50/80 transition-colors">
+                      {/* Sticky first column */}
+                      <td className="sticky left-0 z-10 bg-white px-3 py-2.5 text-center font-mono text-slate-500 border-r border-slate-200 font-medium">
+                        {originalIndex}
+                      </td>
+
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <Badge variant={badgeCfg.variant} className="text-[11px] capitalize">
+                          {badgeCfg.label}
+                        </Badge>
+                      </td>
+
+                      {visibleQuestions.map((q, qIdx) => {
+                        const ans = resp.answers ? resp.answers[q.entryId] : undefined;
+                        const displayAns = Array.isArray(ans) ? ans.join(', ') : (ans ?? '—');
+
+                        return (
+                          <td
+                            key={q.entryId || qIdx}
+                            className="px-3 py-2.5 text-slate-700 min-w-[160px] max-w-[240px] truncate"
+                            title={displayAns}
+                          >
+                            {displayAns}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

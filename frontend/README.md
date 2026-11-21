@@ -1,6 +1,6 @@
-# Form Auto Filler — Frontend
+# Autofillr — Frontend
 
-> React + Vite + Tailwind CSS frontend for **Form Auto Filler**, a tool that
+> React + Vite + Tailwind CSS frontend for **Autofillr**, a tool that
 > generates and submits test responses to Google Forms you own.
 
 ---

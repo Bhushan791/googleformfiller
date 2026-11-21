@@ -44,7 +44,7 @@ export function getConfiguredProviders(envOverrides = null) {
       const origin = frontendUrl.split(",")[0].trim();
       return {
         "HTTP-Referer": origin,
-        "X-Title": "Form Auto Filler",
+        "X-Title": "Autofillr",
       };
     }
     return {};

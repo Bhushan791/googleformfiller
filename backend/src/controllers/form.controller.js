@@ -12,6 +12,7 @@ import { hasLLM } from "../services/llm/index.js";
 /** Request body schema for POST /api/parse-form */
 const parseFormSchema = z.object({
   url: z.string().min(1, "URL is required").url("Must be a valid URL"),
+  settings: generatorSettingsSchema.optional().default({}),
 });
 
 /**
@@ -20,11 +21,11 @@ const parseFormSchema = z.object({
  * Starts background prewarm of AI answers and classifications.
  */
 export const parseForm = asyncHandler(async (req, res) => {
-  const { url } = parseFormSchema.parse(req.body);
+  const { url, settings } = parseFormSchema.parse(req.body);
   const data = await parseGoogleForm(url);
 
-  // Compute deterministic formKey
-  const formKey = answerCache.computeFormKey(data.formId || url, data.questions);
+  // Compute deterministic formKey including audience settings
+  const formKey = answerCache.computeFormKey(data.formId || url, data.questions, settings);
   data.formKey = formKey;
 
   // Background prewarm (fire and forget)
@@ -36,6 +37,7 @@ export const parseForm = asyncHandler(async (req, res) => {
         title: data.title,
         description: data.description,
       },
+      settings,
     }).catch((err) => {
       console.warn("⚠️ Background prewarm failed to start:", err.message);
     });
@@ -45,6 +47,49 @@ export const parseForm = asyncHandler(async (req, res) => {
   }
 
   res.json({ success: true, data });
+});
+
+const triggerPrewarmSchema = z.object({
+  formKey: z.string().optional(),
+  url: z.string().optional(),
+  formId: z.string().optional(),
+  questions: z.array(z.any()).default([]),
+  formContext: z
+    .object({
+      title: z.string().optional(),
+      description: z.string().optional(),
+    })
+    .optional(),
+  settings: generatorSettingsSchema.optional().default({}),
+});
+
+/**
+ * POST /api/prewarm
+ * Explicitly triggers prewarm for an existing form when settings (like audienceMode) change.
+ */
+export const triggerPrewarm = asyncHandler(async (req, res) => {
+  const { formKey: providedKey, url, formId, questions, formContext, settings } =
+    triggerPrewarmSchema.parse(req.body);
+
+  const formKey =
+    providedKey ||
+    answerCache.computeFormKey(formId || url || "form", questions, settings);
+
+  if (hasLLM) {
+    prewarmForm({
+      formKey,
+      questions,
+      formContext,
+      settings,
+    }).catch((err) => {
+      console.warn("⚠️ Prewarm trigger failed:", err.message);
+    });
+  } else {
+    answerCache.init(formKey, { totalAiQuestions: 0, usedLLM: false });
+    answerCache.setStatus(formKey, "failed");
+  }
+
+  res.json({ success: true, data: { formKey } });
 });
 
 /**

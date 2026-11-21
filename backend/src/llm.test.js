@@ -59,7 +59,7 @@ describe("Provider-Agnostic LLM Layer Tests (Groq & OpenRouter)", () => {
         baseUrl: "https://openrouter.ai/api/v1",
         extraHeaders: {
           "HTTP-Referer": "http://localhost:5173",
-          "X-Title": "Form Auto Filler",
+          "X-Title": "Autofillr",
         },
         fetchFn: mockFetch,
       });
@@ -67,7 +67,7 @@ describe("Provider-Agnostic LLM Layer Tests (Groq & OpenRouter)", () => {
       assert.equal(res, "OpenRouter OK");
       assert.equal(capturedHeaders["Authorization"], "Bearer sk-or-v1-secretKey123");
       assert.equal(capturedHeaders["HTTP-Referer"], "http://localhost:5173");
-      assert.equal(capturedHeaders["X-Title"], "Form Auto Filler");
+      assert.equal(capturedHeaders["X-Title"], "Autofillr");
     });
 
     it("Groq passes Authorization Bearer header", async () => {
@@ -115,7 +115,7 @@ describe("Provider-Agnostic LLM Layer Tests (Groq & OpenRouter)", () => {
       assert.equal(providers.length, 2);
       assert.equal(providers[0].name, "groq");
       assert.equal(providers[1].name, "openrouter");
-      assert.equal(providers[1].extraHeaders?.["X-Title"], "Form Auto Filler");
+      assert.equal(providers[1].extraHeaders?.["X-Title"], "Autofillr");
     });
 
     it("auto-detects additional keys from LLM_API_KEYS", () => {

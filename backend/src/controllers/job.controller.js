@@ -91,7 +91,8 @@ export const createJob = asyncHandler(async (req, res) => {
   // 6. Generate the first chunk of 10 responses immediately from cache
   const formKey = answerCache.computeFormKey(
     parsedForm.formId || parsedForm.actionUrl,
-    parsedForm.questions
+    parsedForm.questions,
+    settings
   );
   const initialChunkSize = Math.min(10, count);
 
@@ -276,7 +277,7 @@ export const exportJobCsv = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename="formbot_job_${id.slice(0, 8)}.csv"`
+    `attachment; filename="autofillr_job_${id.slice(0, 8)}.csv"`
   );
 
   res.send(csvContent);

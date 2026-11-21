@@ -15,20 +15,23 @@ class AnswerCache {
   }
 
   /**
-   * Deterministically computes a unique formKey from formId/url and questions.
+   * Deterministically computes a unique formKey from formId/url, questions, and audience settings.
    *
    * @param {string} formId - Form ID or URL
    * @param {Array<object>} questions - Parsed questions
+   * @param {object} [settings] - Generator settings including audienceMode and scenario
    * @returns {string} 24-character hex hash
    */
-  computeFormKey(formId = "", questions = []) {
+  computeFormKey(formId = "", questions = [], settings = {}) {
     const qSummary = (questions || [])
       .map((q) => `${q.id || q.entryId || ""}:${(q.title || "").trim()}`)
       .sort()
       .join("|");
+    const mode = (settings.audienceMode || "auto").trim();
+    const scenario = (settings.scenario || "").trim().slice(0, 400);
     return crypto
       .createHash("sha256")
-      .update(`${formId}:${qSummary}`)
+      .update(`${formId}:${qSummary}:${mode}:${scenario}`)
       .digest("hex")
       .slice(0, 24);
   }
@@ -99,12 +102,35 @@ class AnswerCache {
       readyAt: null,
       totalAiQuestions,
       usedLLM,
+      detectedMode: null,
+      confidence: null,
+      reason: null,
+      audience: null,
+      effectiveMode: "research",
       createdAt: now,
       lastAccessed: ++this.accessCounter,
     };
 
     this.cache.set(formKey, entry);
     return entry;
+  }
+
+  /**
+   * Sets audience detection results for a form cache entry.
+   *
+   * @param {string} formKey
+   * @param {object} detection
+   */
+  setDetection(formKey, detection = {}) {
+    const entry = this.get(formKey);
+    if (!entry) return;
+
+    if (detection.detectedMode !== undefined) entry.detectedMode = detection.detectedMode;
+    if (detection.confidence !== undefined) entry.confidence = detection.confidence;
+    if (detection.reason !== undefined) entry.reason = detection.reason;
+    if (detection.audience !== undefined) entry.audience = detection.audience;
+    if (detection.effectiveMode !== undefined) entry.effectiveMode = detection.effectiveMode;
+    entry.lastAccessed = Date.now();
   }
 
   /**
@@ -274,7 +300,17 @@ class AnswerCache {
   getStatusInfo(formKey) {
     const entry = this.get(formKey);
     if (!entry) {
-      return { status: "idle", ready: 0, total: 0, usedLLM: false };
+      return {
+        status: "idle",
+        ready: 0,
+        total: 0,
+        usedLLM: false,
+        detectedMode: null,
+        confidence: null,
+        reason: null,
+        audience: null,
+        effectiveMode: "research",
+      };
     }
 
     // Count how many questions have buffered answers or classified options
@@ -301,6 +337,11 @@ class AnswerCache {
       ready: readyCount,
       total: entry.totalAiQuestions,
       usedLLM: entry.usedLLM,
+      detectedMode: entry.detectedMode || null,
+      confidence: entry.confidence !== undefined ? entry.confidence : null,
+      reason: entry.reason || null,
+      audience: entry.audience || null,
+      effectiveMode: entry.effectiveMode || "research",
     };
   }
 
