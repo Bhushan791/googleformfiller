@@ -63,6 +63,7 @@ export async function generateResponses({
   anthropicClient = undefined,
   formContext = null,
   generateTextFn = undefined,
+  formKey = null,
 }) {
   const explicitNoLLM = anthropicClient === null || generateTextFn === null;
   const settings = generatorSettingsSchema.parse({
@@ -96,7 +97,7 @@ export async function generateResponses({
           q,
           explicitNoLLM
             ? null
-            : (anthropicClient || { formContext, generateTextFn })
+            : (anthropicClient || { formContext, generateTextFn, formKey })
         );
       } catch (err) {
         metadata.warnings.push(
@@ -154,6 +155,7 @@ export async function generateResponses({
           formContext,
           styleHint: settings?.styleHint,
           generateTextFn: explicitNoLLM ? null : generateTextFn,
+          formKey,
         });
 
         if (usedLLM) metadata.usedLLM = true;

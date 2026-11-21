@@ -56,12 +56,12 @@ npm start
 | `PORT`             | No       | `5000`               | Port the API listens on                            |
 | `NODE_ENV`         | No       | `development`        | `development` / `production` / `test`              |
 | `FRONTEND_URL`     | **Yes**  | —                    | Comma-separated list of allowed CORS origins       |
-| `GEMINI_KEY`       | No       | —                    | Google Gemini API key (prefix `AIza`)              |
-| `GROQ_KEY`         | No       | —                    | Groq API key (prefix `gsk_`)                       |
-| `LLM_API_KEYS`     | No       | —                    | Comma-separated extra API keys (e.g. `sk-or-...`)  |
-| `LLM_PRIORITY`     | No       | `gemini,groq`        | Provider fallback order                            |
-| `LLM_MODEL_GEMINI` | No       | `gemini-3.5-flash-lite` | Override Gemini model                             |
-| `LLM_MODEL_GROQ`   | No       | `qwen/qwen3.8-27b`   | Override Groq model                                |
+| `GROQ_KEY`             | No       | —                    | Groq API key (prefix `gsk_`)                       |
+| `OPENROUTER_KEY`       | No       | —                    | OpenRouter API key (prefix `sk-or-`)               |
+| `LLM_API_KEYS`         | No       | —                    | Comma-separated extra API keys (e.g. `sk-or-...`)  |
+| `LLM_PRIORITY`         | No       | `groq,openrouter`    | Provider fallback order                            |
+| `LLM_MODEL_GROQ`       | No       | `qwen/qwen3.8-27b`   | Override Groq model                                |
+| `LLM_MODEL_OPENROUTER` | No       | `baidu/ernie-5.5-flash-preview:free` | Override OpenRouter model          |
 | `LLM_BASE_URL`     | No       | —                    | Base URL override for OpenAI-compatible providers  |
 | `REDIS_URL`        | No       | —                    | Redis connection string (caching / queues)         |
 

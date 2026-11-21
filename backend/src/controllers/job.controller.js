@@ -10,6 +10,7 @@ import {
   generateResponses,
   generatorSettingsSchema,
 } from "../services/responseGenerator.js";
+import answerCache from "../services/answerCache.js";
 import { buildJobCsv } from "../utils/csvExport.js";
 
 // ---------------------------------------------------------------------------
@@ -87,18 +88,25 @@ export const createJob = asyncHandler(async (req, res) => {
   // 5. Re-validate action URL host and pattern
   validateActionUrl(parsedForm.actionUrl);
 
-  // 6. Generate ALL responses up front
-  const { responses } = await generateResponses({
+  // 6. Generate the first chunk of 10 responses immediately from cache
+  const formKey = answerCache.computeFormKey(
+    parsedForm.formId || parsedForm.actionUrl,
+    parsedForm.questions
+  );
+  const initialChunkSize = Math.min(10, count);
+
+  const { responses: initialResponses, metadata: genMeta } = await generateResponses({
     questions: parsedForm.questions,
-    count,
+    count: initialChunkSize,
     settings: {
       ...settings,
-      count,
+      count: initialChunkSize,
     },
     formContext: {
       title: parsedForm.title,
       description: parsedForm.description,
     },
+    formKey,
   });
 
   const jobId = crypto.randomUUID();
@@ -109,7 +117,7 @@ export const createJob = asyncHandler(async (req, res) => {
     formUrl,
     actionUrl: parsedForm.actionUrl,
     status: "queued",
-    total: responses.length,
+    total: count, // requested count
     submitted: 0,
     failed: 0,
     createdAt: now,
@@ -120,8 +128,15 @@ export const createJob = asyncHandler(async (req, res) => {
     delay,
     questions: parsedForm.questions,
     hiddenFields: parsedForm.hiddenFields || {},
-    responses,
+    settings,
+    formKey,
+    formContext: {
+      title: parsedForm.title,
+      description: parsedForm.description,
+    },
+    responses: initialResponses,
     results: [],
+    warnings: genMeta?.warnings || [],
   };
 
   await jobStore.createJob(newJob);
@@ -134,7 +149,7 @@ export const createJob = asyncHandler(async (req, res) => {
     data: {
       jobId,
       status: "queued",
-      total: responses.length,
+      total: count,
     },
   });
 });

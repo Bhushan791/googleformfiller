@@ -26,22 +26,22 @@ export default function ResponseCountInput({ count, onChange }) {
             max="500"
             value={count}
             onChange={handleInputChange}
-            className="w-24 rounded-lg border border-gray-300 px-3 py-1.5 text-center text-sm font-medium text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-24 rounded-md border border-slate-300 px-3 py-1.5 text-center text-sm font-medium text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs text-gray-400 mr-1">Quick presets:</span>
+        <span className="text-xs text-slate-400 mr-1">Quick presets:</span>
         {quickCounts.map((qc) => (
           <button
             key={qc}
             type="button"
             onClick={() => onChange(qc)}
-            className={`rounded px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors border
+            className={`rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors border
               ${count === qc
-                ? "bg-indigo-50 border-indigo-300 text-indigo-700"
-                : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"}`}
+                ? "bg-blue-50 border-blue-300 text-blue-700"
+                : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}
           >
             {qc}
           </button>

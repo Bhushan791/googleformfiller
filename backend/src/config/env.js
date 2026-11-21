@@ -24,12 +24,12 @@ const envSchema = z.object({
     .min(1, "FRONTEND_URL is required (comma-separated origins)"),
 
   // Provider-agnostic LLM configuration
-  GEMINI_KEY: z.string().optional(),
   GROQ_KEY: z.string().optional(),
+  OPENROUTER_KEY: z.string().optional(),
   LLM_API_KEYS: z.string().optional(),
-  LLM_PRIORITY: z.string().default("gemini,groq"),
-  LLM_MODEL_GEMINI: z.string().optional(),
+  LLM_PRIORITY: z.string().default("groq,openrouter"),
   LLM_MODEL_GROQ: z.string().optional(),
+  LLM_MODEL_OPENROUTER: z.string().optional(),
   LLM_BASE_URL: z.string().optional(),
 
   // Optional for now — will be needed for caching / queues

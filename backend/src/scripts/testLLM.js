@@ -11,7 +11,7 @@ async function main() {
   const providers = getConfiguredProviders();
 
   if (providers.length === 0) {
-    console.error("❌ No LLM providers configured in .env (GEMINI_KEY or GROQ_KEY).");
+    console.error("❌ No LLM providers configured in .env (GROQ_KEY or OPENROUTER_KEY).");
     process.exit(1);
   }
 

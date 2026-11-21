@@ -1,6 +1,8 @@
 import { z } from "zod";
 import config from "../config/env.js";
 import { generateText, hasLLM } from "./llm/index.js";
+import answerCache from "./answerCache.js";
+import { refillBuffer } from "./prewarm.js";
 
 // ---------------------------------------------------------------------------
 // Local built-in realistic mock data for obvious field types
@@ -210,10 +212,23 @@ export class PoolManager {
 const jsonArraySchema = z.array(z.string().min(1));
 
 /**
- * Strips markdown code fences from text (e.g. ```json [...] ```).
+ * Strips markdown code fences and reasoning/<think> blocks from LLM output before parsing JSON.
  */
 export function stripMarkdownFences(rawText = "") {
-  return rawText.replace(/```(?:json)?\s*([\s\S]*?)\s*```/i, "$1").trim();
+  let text = (rawText || "").trim();
+  // 1. Strip <think>...</think> and <thought>...</thought> tags (case-insensitive)
+  text = text.replace(/<(?:think|thought)>[\s\S]*?<\/(?:think|thought)>/gi, "").trim();
+  // 2. Strip unclosed <think> or <thought> tag if output was cut off
+  text = text.replace(/<(?:think|thought)>[\s\S]*$/gi, "").trim();
+  // 3. Strip all markdown code fence backtick markers
+  text = text.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+  // 4. Isolate JSON structure between first { or [ and last } or ]
+  const jsonStart = text.search(/[\{\[]/);
+  const jsonEnd = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+  if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd >= jsonStart) {
+    text = text.slice(jsonStart, jsonEnd + 1).trim();
+  }
+  return text;
 }
 
 /**
@@ -238,9 +253,11 @@ export async function generateBatchedText({
   formContext = null,
   styleHint = null,
   generateTextFn = undefined,
+  formKey = null,
 }) {
   const safeCount = Math.max(1, Math.min(40, count)); // Cost guard: max 40 per call
   const isParagraph = question.type === "paragraph";
+  const qid = question.id || question.entryId;
 
   // Explicitly opted out of LLM (e.g. offline testing)
   if (anthropicClient === null || generateTextFn === null || generateTextFn === false) {
@@ -248,6 +265,64 @@ export async function generateBatchedText({
       getLocalFallbackAnswer(question.type, sentiment)
     );
     return { answers, usedLLM: false, fallbackUsed: true };
+  }
+
+  // 1. Consume from answerCache if formKey is provided
+  if (formKey && qid) {
+    const cachedAnswers = [];
+    let next = answerCache.pop(formKey, qid, sentiment);
+    while (next && cachedAnswers.length < safeCount) {
+      cachedAnswers.push(next);
+      if (cachedAnswers.length < safeCount) {
+        next = answerCache.pop(formKey, qid, sentiment);
+      }
+    }
+
+    // Trigger background refill if buffer < 5
+    if (answerCache.needsRefill(formKey, qid, sentiment)) {
+      refillBuffer({ formKey, question, sentiment, formContext, styleHint }).catch(() => {});
+    }
+
+    if (cachedAnswers.length >= safeCount) {
+      return {
+        answers: cachedAnswers.slice(0, safeCount),
+        usedLLM: true,
+        fallbackUsed: false,
+      };
+    }
+
+    // If buffer was empty, await in-flight refill for at most 6s
+    if (cachedAnswers.length === 0) {
+      const waited = await answerCache.waitForAnswer(formKey, qid, sentiment, 6000);
+      if (waited) {
+        cachedAnswers.push(waited);
+        while (cachedAnswers.length < safeCount) {
+          const more = answerCache.pop(formKey, qid, sentiment);
+          if (!more) break;
+          cachedAnswers.push(more);
+        }
+      }
+    }
+
+    if (cachedAnswers.length >= safeCount) {
+      return {
+        answers: cachedAnswers.slice(0, safeCount),
+        usedLLM: true,
+        fallbackUsed: false,
+      };
+    }
+
+    // If we have some answers from cache, pad with local fallbacks
+    if (cachedAnswers.length > 0) {
+      while (cachedAnswers.length < safeCount) {
+        cachedAnswers.push(getLocalFallbackAnswer(question.type, sentiment));
+      }
+      return {
+        answers: cachedAnswers.slice(0, safeCount),
+        usedLLM: true,
+        fallbackUsed: true,
+      };
+    }
   }
 
   // Resolve generation function

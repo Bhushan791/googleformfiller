@@ -5,6 +5,9 @@ import {
   generateResponses,
   generatorSettingsSchema,
 } from "../services/responseGenerator.js";
+import answerCache from "../services/answerCache.js";
+import { prewarmForm } from "../services/prewarm.js";
+import { hasLLM } from "../services/llm/index.js";
 
 /** Request body schema for POST /api/parse-form */
 const parseFormSchema = z.object({
@@ -14,11 +17,44 @@ const parseFormSchema = z.object({
 /**
  * POST /api/parse-form
  * Fetches a public Google Form, parses it, and returns structured question data.
+ * Starts background prewarm of AI answers and classifications.
  */
 export const parseForm = asyncHandler(async (req, res) => {
   const { url } = parseFormSchema.parse(req.body);
   const data = await parseGoogleForm(url);
+
+  // Compute deterministic formKey
+  const formKey = answerCache.computeFormKey(data.formId || url, data.questions);
+  data.formKey = formKey;
+
+  // Background prewarm (fire and forget)
+  if (hasLLM) {
+    prewarmForm({
+      formKey,
+      questions: data.questions,
+      formContext: {
+        title: data.title,
+        description: data.description,
+      },
+    }).catch((err) => {
+      console.warn("⚠️ Background prewarm failed to start:", err.message);
+    });
+  } else {
+    answerCache.init(formKey, { totalAiQuestions: 0, usedLLM: false });
+    answerCache.setStatus(formKey, "failed");
+  }
+
   res.json({ success: true, data });
+});
+
+/**
+ * GET /api/prewarm/:formKey
+ * Returns status of prewarmed answers (cheap, no LLM call).
+ */
+export const getPrewarmStatus = asyncHandler(async (req, res) => {
+  const { formKey } = req.params;
+  const statusInfo = answerCache.getStatusInfo(formKey);
+  res.json({ success: true, data: statusInfo });
 });
 
 /** Request body schema for POST /api/preview */
@@ -52,6 +88,7 @@ const previewSchema = z.object({
       description: z.string().optional(),
     })
     .optional(),
+  formKey: z.string().optional(),
 });
 
 /**
@@ -59,7 +96,7 @@ const previewSchema = z.object({
  * Generates 5 sample responses for preview / dry run without submitting.
  */
 export const previewResponses = asyncHandler(async (req, res) => {
-  const { questions, settings, formContext } = previewSchema.parse(req.body);
+  const { questions, settings, formContext, formKey } = previewSchema.parse(req.body);
 
   const data = await generateResponses({
     questions,
@@ -69,6 +106,7 @@ export const previewResponses = asyncHandler(async (req, res) => {
       count: 5,
     },
     formContext,
+    formKey,
   });
 
   res.json({ success: true, data });

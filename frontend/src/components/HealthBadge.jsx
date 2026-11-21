@@ -1,58 +1,42 @@
+import React from 'react';
 import useHealth from '../hooks/useHealth';
 
 const STATUS_CONFIG = {
   online: {
-    label: 'Server online',
-    dotClass: 'bg-green-500',
-    textClass: 'text-green-700',
+    label: 'API Online',
+    dotClass: 'bg-emerald-500',
+    badgeClass: 'bg-slate-50 border-slate-200 text-slate-700',
   },
   waking: {
-    label: 'Waking up…',
-    dotClass: 'bg-yellow-400 animate-pulse',
-    textClass: 'text-yellow-700',
+    label: 'Connecting…',
+    dotClass: 'bg-amber-400 animate-pulse',
+    badgeClass: 'bg-amber-50/50 border-amber-200 text-amber-800',
   },
   offline: {
-    label: 'Server offline',
-    dotClass: 'bg-red-500',
-    textClass: 'text-red-700',
+    label: 'API Offline',
+    dotClass: 'bg-rose-500',
+    badgeClass: 'bg-rose-50/50 border-rose-200 text-rose-800',
   },
 };
 
 export default function HealthBadge() {
-  const { status, responseTime, lastChecked, checkNow } = useHealth();
-  const { label, dotClass, textClass } = STATUS_CONFIG[status];
-
-  const timeAgo = lastChecked
-    ? lastChecked.toLocaleTimeString()
-    : '—';
+  const { status, responseTime, checkNow } = useHealth();
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.offline;
 
   return (
-    <div className="flex items-center gap-3 text-sm select-none">
-      {/* Dot + label */}
-      <span className="flex items-center gap-1.5">
-        <span className={`inline-block h-2.5 w-2.5 rounded-full ${dotClass}`} />
-        <span className={`font-medium ${textClass}`}>{label}</span>
-      </span>
-
-      {/* Response time */}
+    <button
+      type="button"
+      onClick={checkNow}
+      title="Click to check API status"
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium border rounded-full transition-colors cursor-pointer select-none ${config.badgeClass} hover:bg-slate-100`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config.dotClass}`} />
+      <span>{config.label}</span>
       {responseTime !== null && (
-        <span className="text-gray-400">{responseTime} ms</span>
+        <span className="text-slate-400 font-mono text-[10px]">
+          {responseTime}ms
+        </span>
       )}
-
-      {/* Last checked */}
-      <span className="hidden sm:inline text-gray-400">
-        {timeAgo}
-      </span>
-
-      {/* Check now button */}
-      <button
-        onClick={checkNow}
-        className="ml-1 rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100 
-                   transition-colors cursor-pointer border border-gray-200"
-      >
-        Check now
-      </button>
-    </div>
+    </button>
   );
 }
-

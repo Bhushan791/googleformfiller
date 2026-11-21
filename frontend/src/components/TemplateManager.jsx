@@ -105,12 +105,12 @@ export default function TemplateManager({
           value={templateName}
           onChange={(e) => setTemplateName(e.target.value)}
           placeholder="New template name (e.g. 'Survey Test Q3')"
-          className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
         <button
           type="submit"
           disabled={!templateName.trim()}
-          className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-gray-700 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+          className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
         >
           Save
         </button>
@@ -122,7 +122,7 @@ export default function TemplateManager({
           <select
             value={selectedTemplateId}
             onChange={(e) => setSelectedTemplateId(e.target.value)}
-            className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">-- Select a saved template --</option>
             {templates.map((t) => (
@@ -136,7 +136,7 @@ export default function TemplateManager({
             type="button"
             onClick={handleApply}
             disabled={!selectedTemplateId}
-            className="rounded-lg border border-indigo-600 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+            className="rounded-md border border-blue-600 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
           >
             Load
           </button>
@@ -145,7 +145,7 @@ export default function TemplateManager({
             type="button"
             onClick={handleDelete}
             disabled={!selectedTemplateId}
-            className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+            className="rounded-md border border-rose-200 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
             title="Delete template"
           >
             ✕

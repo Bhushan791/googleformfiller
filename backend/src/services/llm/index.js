@@ -27,10 +27,45 @@ export function getConfiguredProviders(envOverrides = null) {
   const configured = [];
   const addedKeys = new Set();
 
-  const priorityOrder = (env.LLM_PRIORITY || "gemini,groq")
+  const priorityOrder = (env.LLM_PRIORITY || "groq,openrouter")
     .split(",")
     .map((p) => p.trim().toLowerCase())
     .filter(Boolean);
+
+  const resolveModel = (name, reg) => {
+    if (name === "groq" && env.LLM_MODEL_GROQ) return env.LLM_MODEL_GROQ;
+    if (name === "openrouter" && env.LLM_MODEL_OPENROUTER) return env.LLM_MODEL_OPENROUTER;
+    return reg.defaultModel;
+  };
+
+  const resolveExtraHeaders = (name) => {
+    if (name === "openrouter") {
+      const frontendUrl = env.FRONTEND_URL || "http://localhost:5173";
+      const origin = frontendUrl.split(",")[0].trim();
+      return {
+        "HTTP-Referer": origin,
+        "X-Title": "Form Auto Filler",
+      };
+    }
+    return {};
+  };
+
+  const buildProviderEntry = (name, reg, trimmedKey) => {
+    const model = resolveModel(name, reg);
+    const baseUrl = env.LLM_BASE_URL || reg.defaultBaseUrl;
+    const extraHeaders = resolveExtraHeaders(name);
+
+    return {
+      id: `${name}:${maskKey(trimmedKey)}`,
+      name,
+      key: trimmedKey,
+      maskedKey: maskKey(trimmedKey),
+      model,
+      baseUrl,
+      extraHeaders,
+      adapter: reg.adapter,
+    };
+  };
 
   // 1. Process providers listed in LLM_PRIORITY
   for (const name of priorityOrder) {
@@ -40,23 +75,7 @@ export function getConfiguredProviders(envOverrides = null) {
     const key = env[reg.envVar];
     if (key && key.trim() !== "") {
       const trimmedKey = key.trim();
-      const model =
-        (name === "gemini" && env.LLM_MODEL_GEMINI) ||
-        (name === "groq" && env.LLM_MODEL_GROQ) ||
-        reg.defaultModel;
-
-      const baseUrl =
-        (name !== "gemini" && env.LLM_BASE_URL) || reg.defaultBaseUrl;
-
-      configured.push({
-        id: `${name}:${maskKey(trimmedKey)}`,
-        name,
-        key: trimmedKey,
-        maskedKey: maskKey(trimmedKey),
-        model,
-        baseUrl,
-        adapter: reg.adapter,
-      });
+      configured.push(buildProviderEntry(name, reg, trimmedKey));
       addedKeys.add(trimmedKey);
     }
   }
@@ -71,23 +90,7 @@ export function getConfiguredProviders(envOverrides = null) {
       const detectedName = detectProviderByKey(key);
       const reg = detectedName ? PROVIDER_REGISTRY[detectedName] : null;
       if (reg) {
-        const model =
-          (detectedName === "gemini" && env.LLM_MODEL_GEMINI) ||
-          (detectedName === "groq" && env.LLM_MODEL_GROQ) ||
-          reg.defaultModel;
-
-        const baseUrl =
-          (detectedName !== "gemini" && env.LLM_BASE_URL) || reg.defaultBaseUrl;
-
-        configured.push({
-          id: `${detectedName}:${maskKey(key)}`,
-          name: detectedName,
-          key,
-          maskedKey: maskKey(key),
-          model,
-          baseUrl,
-          adapter: reg.adapter,
-        });
+        configured.push(buildProviderEntry(detectedName, reg, key));
         addedKeys.add(key);
       }
     }
@@ -98,23 +101,7 @@ export function getConfiguredProviders(envOverrides = null) {
     const key = env[reg.envVar];
     if (key && key.trim() !== "" && !addedKeys.has(key.trim())) {
       const trimmedKey = key.trim();
-      const model =
-        (name === "gemini" && env.LLM_MODEL_GEMINI) ||
-        (name === "groq" && env.LLM_MODEL_GROQ) ||
-        reg.defaultModel;
-
-      const baseUrl =
-        (name !== "gemini" && env.LLM_BASE_URL) || reg.defaultBaseUrl;
-
-      configured.push({
-        id: `${name}:${maskKey(trimmedKey)}`,
-        name,
-        key: trimmedKey,
-        maskedKey: maskKey(trimmedKey),
-        model,
-        baseUrl,
-        adapter: reg.adapter,
-      });
+      configured.push(buildProviderEntry(name, reg, trimmedKey));
       addedKeys.add(trimmedKey);
     }
   }
@@ -178,6 +165,7 @@ export async function generateText({
           apiKey: provider.key,
           model: provider.model,
           baseUrl: provider.baseUrl,
+          extraHeaders: provider.extraHeaders || {},
           signal: AbortSignal.timeout(15_000), // 15s timeout
           fetchFn,
         });
@@ -233,6 +221,7 @@ export async function runStartupTest({
         apiKey: p.key,
         model: p.model,
         baseUrl: p.baseUrl,
+        extraHeaders: p.extraHeaders || {},
         signal: AbortSignal.timeout(15_000),
         fetchFn,
       });

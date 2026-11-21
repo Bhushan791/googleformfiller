@@ -14,6 +14,7 @@ export async function openaiCompatAdapter({
   baseUrl = "https://api.groq.com/openai/v1",
   signal,
   fetchFn = fetch,
+  extraHeaders = {},
 }) {
   const cleanBase = baseUrl.replace(/\/+$/, "");
   const url = `${cleanBase}/chat/completions`;
@@ -26,12 +27,15 @@ export async function openaiCompatAdapter({
     ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
   };
 
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+    ...extraHeaders,
+  };
+
   const res = await fetchFn(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers,
     body: JSON.stringify(body),
     signal,
   });
@@ -56,6 +60,10 @@ export async function openaiCompatAdapter({
   const data = await res.json();
   const text = data?.choices?.[0]?.message?.content;
   if (typeof text !== "string") {
+    const reasoning = data?.choices?.[0]?.message?.reasoning;
+    if (typeof reasoning === "string" && reasoning.length > 0) {
+      return reasoning;
+    }
     throw new AppError(
       "OpenAI-compatible provider returned empty or invalid response structure.",
       502,

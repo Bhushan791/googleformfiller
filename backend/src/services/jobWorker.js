@@ -4,6 +4,7 @@ import {
   buildSubmissionPayload,
   submitSingleResponse,
 } from "./submitter.js";
+import { generateResponses } from "./responseGenerator.js";
 
 class JobWorker {
   constructor() {
@@ -109,6 +110,18 @@ class JobWorker {
           break;
         }
 
+        // Ensure next response is generated
+        if (nextIndex >= (job.responses?.length || 0) && (job.responses?.length || 0) < job.total) {
+          const needed = Math.min(10, job.total - (job.responses?.length || 0));
+          await this.generateChunk(job, needed);
+        }
+
+        // Keep generating ahead in chunks of 10 while submitting
+        if ((job.responses?.length || 0) < job.total && (job.responses.length - nextIndex) < 5) {
+          const aheadNeeded = Math.min(10, job.total - job.responses.length);
+          this.generateChunk(job, aheadNeeded).catch(() => {});
+        }
+
         const currentResponse = job.responses[nextIndex];
         const payload = buildSubmissionPayload({
           answers: currentResponse.answers,
@@ -195,6 +208,62 @@ class JobWorker {
     } finally {
       this.activeJobLoops.delete(jobId);
     }
+  }
+
+  /**
+   * Generates a chunk of responses in the background and saves them to the job record.
+   *
+   * @param {object} job
+   * @param {number} count
+   */
+  async generateChunk(job, count) {
+    if (count <= 0) return;
+    if (!this.generatingJobs) this.generatingJobs = new Set();
+    if (this.generatingJobs.has(job.id)) return;
+    this.generatingJobs.add(job.id);
+
+    try {
+      const { responses: newResponses, metadata: genMeta } = await generateResponses({
+        questions: job.questions,
+        count,
+        settings: {
+          ...(job.settings || {}),
+          count,
+        },
+        formKey: job.formKey,
+        formContext: job.formContext,
+      });
+
+      job.responses = [...(job.responses || []), ...newResponses];
+      if (genMeta?.warnings?.length) {
+        job.warnings = [...(job.warnings || []), ...genMeta.warnings];
+      }
+    } catch (err) {
+      console.warn(`⚠️ Failed to generate chunk for job ${job.id}, using fallback:`, err.message);
+      try {
+        const { responses: fallbackResponses } = await generateResponses({
+          questions: job.questions,
+          count,
+          settings: {
+            ...(job.settings || {}),
+            count,
+          },
+          anthropicClient: null,
+          generateTextFn: false,
+        });
+        job.responses = [...(job.responses || []), ...fallbackResponses];
+        job.warnings = [...(job.warnings || []), `Chunk generation fallback: ${err.message}`];
+      } catch (fallbackErr) {
+        console.error("Critical fallback failure:", fallbackErr.message);
+      }
+    } finally {
+      this.generatingJobs.delete(job.id);
+    }
+
+    await jobStore.updateJob(job.id, {
+      responses: job.responses,
+      warnings: job.warnings || [],
+    });
   }
 
   /**

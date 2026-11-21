@@ -10,60 +10,67 @@ import {
 } from "./services/llm/index.js";
 import { maskKey, detectProviderByKey } from "./services/llm/registry.js";
 import { ConcurrencyLimiter } from "./services/llm/limiter.js";
-import { geminiAdapter } from "./services/llm/providers/gemini.js";
 import { openaiCompatAdapter } from "./services/llm/providers/openaiCompat.js";
 import { generateBatchedText } from "./services/textGenerator.js";
 import { classifyOptions } from "./services/sentimentEngine.js";
 import { generateResponses } from "./services/responseGenerator.js";
 
-describe("Provider-Agnostic LLM Layer Tests", () => {
+describe("Provider-Agnostic LLM Layer Tests (Groq & OpenRouter)", () => {
   beforeEach(() => {
     providerCooldowns.clear();
   });
 
   describe("1. Key Masking & Security", () => {
     it("masks keys properly and never exposes the full secret", () => {
-      const geminiKey = "AIzaSyD1234567890abcdefXYZ";
-      const masked = maskKey(geminiKey);
-      assert.equal(masked, "AIza…fXYZ");
-      assert.equal(masked.startsWith("AIza…"), true);
+      const groqKey = "gsk_1234567890abcdefXYZ";
+      const masked = maskKey(groqKey);
+      assert.equal(masked, "gsk_…fXYZ");
+      assert.equal(masked.startsWith("gsk_…"), true);
       assert.equal(masked.endsWith("fXYZ"), true);
       assert.equal(masked.includes("1234567890"), false);
+
+      const openrouterKey = "sk-or-v1-abcdef12345678";
+      const maskedOr = maskKey(openrouterKey);
+      assert.equal(maskedOr, "sk-o…5678");
 
       assert.equal(maskKey(""), "****");
       assert.equal(maskKey(null), "****");
       assert.equal(maskKey("short"), "****");
     });
 
-    it("Gemini adapter passes key in x-goog-api-key header and never in URL", async () => {
-      let capturedUrl = "";
+    it("OpenRouter passes HTTP-Referer, X-Title, and Authorization header", async () => {
       let capturedHeaders = {};
 
       const mockFetch = async (url, options) => {
-        capturedUrl = url;
         capturedHeaders = options.headers;
         return {
           ok: true,
           status: 200,
           json: async () => ({
-            candidates: [{ content: { parts: [{ text: "Gemini OK" }] } }],
+            choices: [{ message: { content: "OpenRouter OK" } }],
           }),
         };
       };
 
-      const res = await geminiAdapter({
+      const res = await openaiCompatAdapter({
         prompt: "Hello",
-        apiKey: "AIzaTestSecretKey123",
-        model: "gemini-3.5-flash-lite",
+        apiKey: "sk-or-v1-secretKey123",
+        model: "nvidia/nemotron-3.5-lightning:free",
+        baseUrl: "https://openrouter.ai/api/v1",
+        extraHeaders: {
+          "HTTP-Referer": "http://localhost:5173",
+          "X-Title": "Form Auto Filler",
+        },
         fetchFn: mockFetch,
       });
 
-      assert.equal(res, "Gemini OK");
-      assert.equal(capturedUrl.includes("AIza"), false, "API key must not be in URL");
-      assert.equal(capturedHeaders["x-goog-api-key"], "AIzaTestSecretKey123");
+      assert.equal(res, "OpenRouter OK");
+      assert.equal(capturedHeaders["Authorization"], "Bearer sk-or-v1-secretKey123");
+      assert.equal(capturedHeaders["HTTP-Referer"], "http://localhost:5173");
+      assert.equal(capturedHeaders["X-Title"], "Form Auto Filler");
     });
 
-    it("OpenAICompat adapter passes key in Authorization header", async () => {
+    it("Groq passes Authorization Bearer header", async () => {
       let capturedHeaders = {};
 
       const mockFetch = async (url, options) => {
@@ -81,6 +88,7 @@ describe("Provider-Agnostic LLM Layer Tests", () => {
         prompt: "Hello",
         apiKey: "gsk_TestSecret456",
         model: "qwen/qwen3.8-27b",
+        baseUrl: "https://api.groq.com/openai/v1",
         fetchFn: mockFetch,
       });
 
@@ -91,43 +99,43 @@ describe("Provider-Agnostic LLM Layer Tests", () => {
 
   describe("2. Provider Detection & Registry", () => {
     it("detects providers by key prefix", () => {
-      assert.equal(detectProviderByKey("AIzaSyD123"), "gemini");
       assert.equal(detectProviderByKey("gsk_abc123"), "groq");
       assert.equal(detectProviderByKey("sk-or-v1-xyz"), "openrouter");
       assert.equal(detectProviderByKey("unknown-key"), null);
     });
 
-    it("resolves providers from GEMINI_KEY and GROQ_KEY according to LLM_PRIORITY", () => {
+    it("resolves providers from GROQ_KEY and OPENROUTER_KEY according to LLM_PRIORITY", () => {
       const env = {
-        GEMINI_KEY: "AIzaGemini12345678",
         GROQ_KEY: "gsk_Groq12345678",
-        LLM_PRIORITY: "groq,gemini",
+        OPENROUTER_KEY: "sk-or-v1-OpenRouter1234",
+        LLM_PRIORITY: "groq,openrouter",
       };
 
       const providers = getConfiguredProviders(env);
       assert.equal(providers.length, 2);
       assert.equal(providers[0].name, "groq");
-      assert.equal(providers[1].name, "gemini");
+      assert.equal(providers[1].name, "openrouter");
+      assert.equal(providers[1].extraHeaders?.["X-Title"], "Form Auto Filler");
     });
 
     it("auto-detects additional keys from LLM_API_KEYS", () => {
       const env = {
-        GEMINI_KEY: "AIzaGemini11111111",
-        LLM_API_KEYS: "sk-or-openrouterKey1234, gsk_extraGroqKey5678",
-        LLM_PRIORITY: "gemini",
+        GROQ_KEY: "gsk_Groq11111111",
+        LLM_API_KEYS: "sk-or-extraOpenRouterKey, gsk_extraGroqKey5678",
+        LLM_PRIORITY: "groq",
       };
 
       const providers = getConfiguredProviders(env);
       assert.equal(providers.length, 3);
-      assert.equal(providers[0].name, "gemini");
+      assert.equal(providers[0].name, "groq");
       assert.equal(providers[1].name, "openrouter");
       assert.equal(providers[2].name, "groq");
     });
 
-    it("returns empty array and hasLLM is false when no keys configured", () => {
+    it("returns empty array when no keys configured", () => {
       const env = {
-        GEMINI_KEY: "",
         GROQ_KEY: "",
+        OPENROUTER_KEY: "",
         LLM_API_KEYS: "",
       };
 
@@ -163,28 +171,28 @@ describe("Provider-Agnostic LLM Layer Tests", () => {
   describe("4. Fallback on 429/5xx/timeout & 60s Cooldown", () => {
     it("falls back to 2nd provider on 429 error and applies 60s cooldown to 1st provider", async () => {
       const env = {
-        GEMINI_KEY: "AIzaFirstKey123456",
-        GROQ_KEY: "gsk_SecondKey123456",
-        LLM_PRIORITY: "gemini,groq",
+        GROQ_KEY: "gsk_FirstKey123456",
+        OPENROUTER_KEY: "sk-or-v1-SecondKey123456",
+        LLM_PRIORITY: "groq,openrouter",
       };
 
       let callCount = 0;
       const mockFetch = async (url) => {
         callCount++;
-        if (url.includes("generativelanguage")) {
-          // Gemini returns 429
+        if (url.includes("api.groq.com")) {
+          // Groq returns 429
           return {
             ok: false,
             status: 429,
             json: async () => ({ error: { message: "Quota exceeded" } }),
           };
         }
-        // Groq succeeds
+        // OpenRouter succeeds
         return {
           ok: true,
           status: 200,
           json: async () => ({
-            choices: [{ message: { content: "Success from Groq fallback" } }],
+            choices: [{ message: { content: "Success from OpenRouter fallback" } }],
           }),
         };
       };
@@ -195,15 +203,15 @@ describe("Provider-Agnostic LLM Layer Tests", () => {
         envOverrides: env,
       });
 
-      assert.equal(result, "Success from Groq fallback");
+      assert.equal(result, "Success from OpenRouter fallback");
       assert.equal(callCount, 2);
 
-      // Verify cooldown was registered for gemini
-      const geminiId = "gemini:" + maskKey("AIzaFirstKey123456");
-      const cooldown = providerCooldowns.get(geminiId);
+      // Verify cooldown was registered for groq
+      const groqId = "groq:" + maskKey("gsk_FirstKey123456");
+      const cooldown = providerCooldowns.get(groqId);
       assert.ok(cooldown && cooldown > Date.now());
 
-      // Second call should skip gemini immediately and go directly to groq!
+      // Second call should skip groq immediately and go directly to openrouter!
       callCount = 0;
       const result2 = await generateText({
         prompt: "Generate text 2",
@@ -211,30 +219,30 @@ describe("Provider-Agnostic LLM Layer Tests", () => {
         envOverrides: env,
       });
 
-      assert.equal(result2, "Success from Groq fallback");
-      assert.equal(callCount, 1, "Gemini should be skipped due to active cooldown");
+      assert.equal(result2, "Success from OpenRouter fallback");
+      assert.equal(callCount, 1, "Groq should be skipped due to active cooldown");
     });
 
     it("falls back to 2nd provider on 5xx or timeout", async () => {
       const env = {
-        GEMINI_KEY: "AIzaFirstKey123456",
-        GROQ_KEY: "gsk_SecondKey123456",
-        LLM_PRIORITY: "gemini,groq",
+        GROQ_KEY: "gsk_FirstKey123456",
+        OPENROUTER_KEY: "sk-or-v1-SecondKey123456",
+        LLM_PRIORITY: "groq,openrouter",
       };
 
       const mockFetch = async (url) => {
-        if (url.includes("generativelanguage")) {
+        if (url.includes("api.groq.com")) {
           return {
             ok: false,
             status: 503,
-            json: async () => ({ error: { message: "Overloaded" } }),
+            json: async () => ({ error: { message: "Groq Overloaded" } }),
           };
         }
         return {
           ok: true,
           status: 200,
           json: async () => ({
-            choices: [{ message: { content: "OK from second provider" } }],
+            choices: [{ message: { content: "OK from OpenRouter fallback" } }],
           }),
         };
       };
@@ -245,13 +253,13 @@ describe("Provider-Agnostic LLM Layer Tests", () => {
         envOverrides: env,
       });
 
-      assert.equal(result, "OK from second provider");
+      assert.equal(result, "OK from OpenRouter fallback");
     });
 
     it("throws LLM_UNAVAILABLE when all providers fail", async () => {
       const env = {
-        GEMINI_KEY: "AIzaFirstKey123456",
-        GROQ_KEY: "gsk_SecondKey123456",
+        GROQ_KEY: "gsk_FirstKey123456",
+        OPENROUTER_KEY: "sk-or-v1-SecondKey123456",
       };
 
       const mockFetch = async () => ({
@@ -275,18 +283,18 @@ describe("Provider-Agnostic LLM Layer Tests", () => {
   describe("5. Startup Self-Test & Status Reporting", () => {
     it("reports OK and FAILED status without leaking keys", async () => {
       const env = {
-        GEMINI_KEY: "AIzaWorkingKey1234",
-        GROQ_KEY: "gsk_FailingKey5678",
-        LLM_PRIORITY: "gemini,groq",
+        GROQ_KEY: "gsk_WorkingKey1234",
+        OPENROUTER_KEY: "sk-or-v1-FailingKey5678",
+        LLM_PRIORITY: "groq,openrouter",
       };
 
       const mockFetch = async (url) => {
-        if (url.includes("generativelanguage")) {
+        if (url.includes("api.groq.com")) {
           return {
             ok: true,
             status: 200,
             json: async () => ({
-              candidates: [{ content: { parts: [{ text: "OK" }] } }],
+              choices: [{ message: { content: "OK" } }],
             }),
           };
         }
@@ -306,37 +314,37 @@ describe("Provider-Agnostic LLM Layer Tests", () => {
       assert.equal(status.enabled, true);
       assert.equal(status.providers.length, 2);
 
-      const geminiStatus = status.providers.find((p) => p.provider === "gemini");
       const groqStatus = status.providers.find((p) => p.provider === "groq");
+      const openrouterStatus = status.providers.find((p) => p.provider === "openrouter");
 
-      assert.equal(geminiStatus.status, "OK");
-      assert.ok(geminiStatus.latencyMs >= 0);
-      assert.equal(groqStatus.status, "FAILED");
+      assert.equal(groqStatus.status, "OK");
+      assert.ok(groqStatus.latencyMs >= 0);
+      assert.equal(openrouterStatus.status, "FAILED");
 
       // Verify no raw key is present in status object
       const serialized = JSON.stringify(status);
-      assert.equal(serialized.includes("AIzaWorkingKey1234"), false);
-      assert.equal(serialized.includes("gsk_FailingKey5678"), false);
+      assert.equal(serialized.includes("gsk_WorkingKey1234"), false);
+      assert.equal(serialized.includes("sk-or-v1-FailingKey5678"), false);
     });
   });
 
   describe("6. Local Fallbacks When No Keys Configured", () => {
-    let savedGemini;
     let savedGroq;
+    let savedOpenRouter;
     let savedExtra;
 
     beforeEach(() => {
-      savedGemini = process.env.GEMINI_KEY;
       savedGroq = process.env.GROQ_KEY;
+      savedOpenRouter = process.env.OPENROUTER_KEY;
       savedExtra = process.env.LLM_API_KEYS;
-      delete process.env.GEMINI_KEY;
       delete process.env.GROQ_KEY;
+      delete process.env.OPENROUTER_KEY;
       delete process.env.LLM_API_KEYS;
     });
 
     afterEach(() => {
-      if (savedGemini !== undefined) process.env.GEMINI_KEY = savedGemini;
       if (savedGroq !== undefined) process.env.GROQ_KEY = savedGroq;
+      if (savedOpenRouter !== undefined) process.env.OPENROUTER_KEY = savedOpenRouter;
       if (savedExtra !== undefined) process.env.LLM_API_KEYS = savedExtra;
     });
 

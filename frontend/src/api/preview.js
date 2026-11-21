@@ -7,10 +7,11 @@ import client from './client';
  * @param {object} settings - Generator settings (mix, perQuestion, pools, etc.)
  * @returns {Promise<object>} - { success: true, data: { responses, metadata } }
  */
-export async function previewResponses(questions, settings) {
+export async function previewResponses(questions, settings, formKey = null) {
   const { data } = await client.post('/api/preview', {
     questions,
     settings,
+    formKey,
   });
   return data;
 }

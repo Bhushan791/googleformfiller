@@ -66,7 +66,7 @@ export default function PoolUploader({ pools = {}, onAddPool, onRemovePool }) {
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer"
+          className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors cursor-pointer"
         >
           {isOpen ? 'Close' : '+ Add Pool'}
         </button>
@@ -80,9 +80,9 @@ export default function PoolUploader({ pools = {}, onAddPool, onRemovePool }) {
             return (
               <span
                 key={pName}
-                className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700"
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-700"
               >
-                <span className="font-medium text-indigo-700">{pName}</span>
+                <span className="font-medium text-blue-700">{pName}</span>
                 <span className="text-gray-400">({count} items)</span>
                 <button
                   type="button"

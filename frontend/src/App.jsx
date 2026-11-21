@@ -1,27 +1,46 @@
 import { useState, useCallback } from 'react';
-import Header from './components/Header';
-import AIBanner from './components/AIBanner';
+import AppShell from './components/AppShell';
 import FormUrlInput from './components/FormUrlInput';
 import FormSummary from './components/FormSummary';
 import QuestionList from './components/QuestionList';
+import ConfigureSettingsCard from './components/ConfigureSettingsCard';
 import QuestionSkeleton from './components/QuestionSkeleton';
 import ErrorMessage from './components/ErrorMessage';
 import UnsupportedWarning from './components/UnsupportedWarning';
-import SentimentControls from './components/SentimentControls';
-import ResponseCountInput from './components/ResponseCountInput';
-import PoolUploader from './components/PoolUploader';
-import DryRunButton from './components/DryRunButton';
 import DryRunTable from './components/DryRunTable';
 import StartJobPanel from './components/StartJobPanel';
 import JobDashboard from './components/JobDashboard';
-import TemplateManager from './components/TemplateManager';
+import Button from './components/ui/Button';
 import useParseForm from './hooks/useParseForm';
 import useSettings from './hooks/useSettings';
 import useJob from './hooks/useJob';
+import useStep from './hooks/useStep';
 import { previewResponses } from './api/preview';
 import { createJob } from './api/jobs';
+import { useToast } from './components/ui/Toast';
+import { ArrowLeft, ArrowRight, Play, RotateCcw, Sparkles } from 'lucide-react';
+
+const STEP_METADATA = {
+  1: {
+    title: 'Connect Form',
+    description: 'Paste any public Google Forms link to inspect its fields and structure.',
+  },
+  2: {
+    title: 'Configure Responses',
+    description: 'Set tone distribution, customize per-question logic, and adjust submission parameters.',
+  },
+  3: {
+    title: 'Review Sample Data',
+    description: 'Inspect 5 dry-run preview responses to verify formatting, variety, and tone.',
+  },
+  4: {
+    title: 'Submit Responses',
+    description: 'Execute sequential, paced submissions directly to your Google Form.',
+  },
+};
 
 export default function App() {
+  const { addToast } = useToast();
   const [submittedUrl, setSubmittedUrl] = useState(null);
   const { data, loading, error, parse, reset } = useParseForm();
 
@@ -32,6 +51,7 @@ export default function App() {
     setQuestionOverride,
     addPool,
     removePool,
+    setOptionalSkipRate,
     loadSettings,
   } = useSettings();
 
@@ -63,6 +83,16 @@ export default function App() {
   const [startJobLoading, setStartJobLoading] = useState(false);
   const [startJobError, setStartJobError] = useState(null);
 
+  const {
+    activeStep,
+    goToStep,
+    steps,
+  } = useStep({
+    data,
+    previewResult,
+    activeJobId,
+  });
+
   const handleSubmit = (url) => {
     setSubmittedUrl(url);
     setPreviewResult(null);
@@ -75,25 +105,30 @@ export default function App() {
     setPreviewResult(null);
     setPreviewError(null);
     reset();
+    goToStep(1);
+    addToast('Cleared active form', 'info');
   };
 
   const handleRunPreview = useCallback(async () => {
     if (!data?.questions?.length) return;
     setPreviewLoading(true);
     setPreviewError(null);
+    goToStep(3);
 
     try {
-      const res = await previewResponses(data.questions, settings);
+      const res = await previewResponses(data.questions, settings, data.formKey);
       setPreviewResult(res.data);
+      addToast('Generated 5 sample responses', 'success');
     } catch (err) {
-      setPreviewError(
+      const msg =
         err.response?.data?.error?.message ||
-          'Failed to generate preview responses. Please try again.'
-      );
+        'Failed to generate preview responses. Please try again.';
+      setPreviewError(msg);
+      addToast(msg, 'error');
     } finally {
       setPreviewLoading(false);
     }
-  }, [data, settings]);
+  }, [data, settings, goToStep, addToast]);
 
   const handleStartJob = async () => {
     if (!submittedUrl) return;
@@ -115,12 +150,15 @@ export default function App() {
       } catch (e) {
         console.warn('Failed to save active jobId to localStorage', e);
       }
+      goToStep(4);
+      addToast(`Job #${newJobId.slice(0, 8)} started`, 'success');
     } catch (err) {
-      setStartJobError(
+      const msg =
         err.response?.data?.error?.message ||
-          err.message ||
-          'Failed to start job.'
-      );
+        err.message ||
+        'Failed to start job.';
+      setStartJobError(msg);
+      addToast(msg, 'error');
     } finally {
       setStartJobLoading(false);
     }
@@ -133,6 +171,7 @@ export default function App() {
     } catch (e) {
       console.warn('Failed to clear jobId from localStorage', e);
     }
+    addToast('Job session reset', 'info');
   };
 
   const handleLoadTemplate = (template) => {
@@ -141,116 +180,181 @@ export default function App() {
     if (template.delay) setDelay(template.delay);
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <Header />
-      <AIBanner />
+  // Determine SummaryPanel Primary Action based on step
+  let primaryActionLabel = '';
+  let onPrimaryAction = null;
+  let primaryActionLoading = false;
+  let primaryActionDisabled = false;
 
-      <main className="mx-auto flex max-w-4xl flex-col items-center gap-6 px-4 pt-16 pb-20">
-        {/* Title + description */}
-        <div className="text-center max-w-xl">
-          <h2 className="mb-1 text-2xl font-bold tracking-tight">
-            Generate Test Responses
+  if (activeStep === 3 && data) {
+    primaryActionLabel = 'Continue to Run →';
+    onPrimaryAction = () => goToStep(4);
+    primaryActionDisabled = previewLoading;
+  } else if (activeStep === 4 && !activeJobId && data) {
+    primaryActionLabel = 'Start Submissions';
+    onPrimaryAction = handleStartJob;
+    primaryActionLoading = startJobLoading;
+  }
+
+  const currentStepMeta = STEP_METADATA[activeStep] || STEP_METADATA[1];
+
+  return (
+    <AppShell
+      steps={steps}
+      activeStep={activeStep}
+      onSelectStep={goToStep}
+      data={data}
+      settings={settings}
+      formKey={data?.formKey}
+      onPrimaryAction={onPrimaryAction}
+      primaryActionLabel={primaryActionLabel}
+      primaryActionLoading={primaryActionLoading}
+      primaryActionDisabled={primaryActionDisabled}
+      onReset={handleRetry}
+    >
+      <div className="space-y-6">
+        {/* Consistent Step Page Title & Description */}
+        <div className="border-b border-slate-200 pb-3">
+          <h2 className="text-lg font-semibold text-slate-900 tracking-tight">
+            {currentStepMeta.title}
           </h2>
-          <p className="text-sm text-gray-500">
-            Paste a Google Form link to auto-fill it with realistic demo data.
+          <p className="text-xs text-slate-500 mt-0.5">
+            {currentStepMeta.description}
           </p>
         </div>
 
-        {/* Active Job Dashboard (if job is active or was running) */}
-        {activeJobId && (
-          <div className="w-full flex flex-col items-center">
-            <JobDashboard
-              job={job}
-              onPause={pauseJob}
-              onResume={resumeJob}
-              onCancel={cancelJob}
-              onClear={handleClearActiveJob}
-              actionLoading={actionLoading}
-            />
+        {/* STEP 1: FORM */}
+        {activeStep === 1 && (
+          <div className="space-y-6">
+            {!data && !loading && (
+              <FormUrlInput onSubmit={handleSubmit} loading={loading} />
+            )}
+
+            {loading && <QuestionSkeleton />}
+
+            {error && <ErrorMessage error={error} onRetry={handleRetry} />}
+
+            {data && (
+              <div className="space-y-4">
+                <FormSummary
+                  title={data.title}
+                  description={data.description}
+                  questionCount={data.questions?.length ?? 0}
+                  unsupportedCount={data.unsupported?.length ?? 0}
+                  formKey={data.formKey}
+                  onContinue={() => goToStep(2)}
+                  showContinue={true}
+                />
+
+                <div className="flex justify-start">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRetry}
+                  >
+                    Try another link
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* URL input — visible when no form is loaded and no active job */}
-        {!data && !loading && !activeJobId && (
-          <FormUrlInput onSubmit={handleSubmit} />
-        )}
+        {/* STEP 2: CONFIGURE (Two-column on desktop, single on mobile) */}
+        {activeStep === 2 && data && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left / Main: Questions (7 cols on lg) */}
+              <div className="lg:col-span-7 space-y-4">
+                {data.unsupported?.length > 0 && (
+                  <UnsupportedWarning items={data.unsupported} />
+                )}
 
-        {/* Loading skeleton while parsing form */}
-        {loading && <QuestionSkeleton />}
+                <QuestionList
+                  questions={data.questions}
+                  overrides={settings.perQuestion}
+                  onOverrideChange={setQuestionOverride}
+                  pools={settings.pools}
+                />
+              </div>
 
-        {/* Form parsing error */}
-        {error && <ErrorMessage error={error} onRetry={handleRetry} />}
-
-        {/* Form Loaded & Config Flow */}
-        {data && (
-          <div className="w-full flex flex-col items-center gap-6">
-            {/* Form Title & Summary */}
-            <FormSummary
-              title={data.title}
-              description={data.description}
-              questionCount={data.questions?.length ?? 0}
-              unsupportedCount={data.unsupported?.length ?? 0}
-            />
-
-            {data.unsupported?.length > 0 && (
-              <UnsupportedWarning items={data.unsupported} />
-            )}
-
-            {/* Template Manager */}
-            <TemplateManager
-              formId={data.formId}
-              currentSettings={settings}
-              currentCount={settings.count}
-              currentDelay={delay}
-              onLoadTemplate={handleLoadTemplate}
-            />
-
-            {/* Generation Controls */}
-            <div className="w-full max-w-xl space-y-4">
-              <SentimentControls
-                mix={settings.mix}
-                onChange={setMix}
-                totalCount={settings.count}
-              />
-
-              <ResponseCountInput
-                count={settings.count}
-                onChange={setCount}
-              />
-
-              <PoolUploader
-                pools={settings.pools}
-                onAddPool={addPool}
-                onRemovePool={removePool}
-              />
+              {/* Right / Side: Settings Card (5 cols on lg) */}
+              <div className="lg:col-span-5 space-y-4">
+                <ConfigureSettingsCard
+                  formId={data.formId}
+                  settings={settings}
+                  onMixChange={setMix}
+                  onCountChange={setCount}
+                  onSkipRateChange={setOptionalSkipRate}
+                  onAddPool={addPool}
+                  onRemovePool={removePool}
+                  onLoadTemplate={handleLoadTemplate}
+                  delay={delay}
+                />
+              </div>
             </div>
 
-            {/* Questions with inline customizations */}
-            <QuestionList
-              questions={data.questions}
-              overrides={settings.perQuestion}
-              onOverrideChange={setQuestionOverride}
-              pools={settings.pools}
-            />
+            {/* Step 2 Bottom Actions */}
+            <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleRetry}
+              >
+                Change Form
+              </Button>
 
-            {/* Dry Run Button */}
-            <div className="w-full max-w-xl flex flex-col items-center gap-2">
-              <DryRunButton
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
                 onClick={handleRunPreview}
                 loading={previewLoading}
                 disabled={!data.questions?.length}
-              />
-
-              {previewError && (
-                <div className="w-full rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-                  {previewError}
-                </div>
-              )}
+                icon={ArrowRight}
+              >
+                Preview Responses
+              </Button>
             </div>
+          </div>
+        )}
 
-            {/* Dry Run Preview Table */}
-            {previewResult && (
+        {/* STEP 3: REVIEW (Dry Run) */}
+        {activeStep === 3 && data && (
+          <div className="space-y-6">
+            {previewLoading && (
+              <div className="rounded-lg border border-slate-200 bg-white p-12 text-center space-y-3">
+                <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                <p className="text-xs font-medium text-slate-600">
+                  Synthesizing 5 sample responses with configured tone mix...
+                </p>
+              </div>
+            )}
+
+            {previewError && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 space-y-2">
+                <p className="text-xs font-semibold text-rose-800">Preview Generation Error</p>
+                <p className="text-xs text-rose-700">{previewError}</p>
+                <Button variant="secondary" size="sm" onClick={handleRunPreview} icon={RotateCcw}>
+                  Retry Generation
+                </Button>
+              </div>
+            )}
+
+            {!previewResult && !previewLoading && !previewError && (
+              <div className="rounded-lg border border-slate-200 bg-white p-10 text-center space-y-3">
+                <p className="text-xs text-slate-500">
+                  No preview has been generated yet for this configuration.
+                </p>
+                <Button variant="primary" size="sm" onClick={handleRunPreview} icon={Sparkles}>
+                  Generate Preview Sample
+                </Button>
+              </div>
+            )}
+
+            {previewResult && !previewLoading && (
               <DryRunTable
                 responses={previewResult.responses}
                 questions={data.questions}
@@ -260,31 +364,74 @@ export default function App() {
               />
             )}
 
-            {/* Live Submission Panel (only when not already running an active job) */}
-            {!activeJobId && (
-              <StartJobPanel
-                formUrl={submittedUrl}
-                count={settings.count}
-                onCountChange={setCount}
-                delay={delay}
-                onDelayChange={setDelay}
-                hasDryRun={Boolean(previewResult)}
-                onStartJob={handleStartJob}
-                loading={startJobLoading}
-                error={startJobError}
-              />
-            )}
+            {/* Step 3 Navigation Controls */}
+            <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={() => goToStep(2)}
+                icon={ArrowLeft}
+              >
+                Back to Configure
+              </Button>
 
-            {/* Navigation back */}
-            <button
-              onClick={handleRetry}
-              className="mt-4 rounded-lg border border-gray-300 px-5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
-            >
-              ← Parse another form
-            </button>
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={() => goToStep(4)}
+                disabled={previewLoading || !previewResult}
+                icon={ArrowRight}
+              >
+                Continue to Run
+              </Button>
+            </div>
           </div>
         )}
-      </main>
-    </div>
+
+        {/* STEP 4: RUN */}
+        {activeStep === 4 && (
+          <div className="space-y-6">
+            {activeJobId ? (
+              <JobDashboard
+                job={job}
+                onPause={pauseJob}
+                onResume={resumeJob}
+                onCancel={cancelJob}
+                onClear={handleClearActiveJob}
+                actionLoading={actionLoading}
+              />
+            ) : (
+              <div className="space-y-6">
+                <StartJobPanel
+                  formUrl={submittedUrl}
+                  count={settings.count}
+                  onCountChange={setCount}
+                  delay={delay}
+                  onDelayChange={setDelay}
+                  hasDryRun={Boolean(previewResult)}
+                  onStartJob={handleStartJob}
+                  loading={startJobLoading}
+                  error={startJobError}
+                />
+
+                <div className="flex items-center justify-start pt-2 border-t border-slate-200">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => goToStep(3)}
+                    icon={ArrowLeft}
+                  >
+                    Back to Review
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </AppShell>
   );
 }

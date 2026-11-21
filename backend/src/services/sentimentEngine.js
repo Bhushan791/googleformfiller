@@ -2,6 +2,7 @@ import { z } from "zod";
 import config from "../config/env.js";
 import { generateText, hasLLM } from "./llm/index.js";
 import { stripMarkdownFences } from "./textGenerator.js";
+import answerCache from "./answerCache.js";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -42,13 +43,13 @@ export const questionOverrideSchema = z.discriminatedUnion("mode", [
 const CLASSIFICATION_CACHE = new Map();
 const MAX_CACHE_SIZE = 500;
 
-function getCacheKey(question) {
+export function getCacheKey(question) {
   const title = (question.title || "").trim();
   const options = (question.options || []).join("|||");
   return `${title}:::${options}`;
 }
 
-function setCache(key, value) {
+export function setCache(key, value) {
   if (CLASSIFICATION_CACHE.size >= MAX_CACHE_SIZE) {
     const oldestKey = CLASSIFICATION_CACHE.keys().next().value;
     if (oldestKey) CLASSIFICATION_CACHE.delete(oldestKey);
@@ -99,6 +100,16 @@ export async function classifyOptions(question, optionsOrClient) {
   const cacheKey = getCacheKey(question);
   if (CLASSIFICATION_CACHE.has(cacheKey)) {
     return CLASSIFICATION_CACHE.get(cacheKey);
+  }
+
+  // Check answerCache first if formKey is provided
+  if (optionsOrClient?.formKey) {
+    const qid = question.id || question.entryId;
+    const cachedOptions = answerCache.getOptions(optionsOrClient.formKey, qid);
+    if (cachedOptions && Object.keys(cachedOptions).length > 0) {
+      setCache(cacheKey, cachedOptions);
+      return cachedOptions;
+    }
   }
 
   if (optionsOrClient === null || optionsOrClient?.generateTextFn === null || optionsOrClient?.generateTextFn === false) {

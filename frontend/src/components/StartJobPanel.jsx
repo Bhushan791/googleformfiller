@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
+import { Play, Info } from 'lucide-react';
+import Button from './ui/Button';
+import Alert from './ui/Alert';
 
 export default function StartJobPanel({
   formUrl,
@@ -30,14 +33,12 @@ export default function StartJobPanel({
     onDelayChange({ minMs: newMinMs, maxMs: newMaxMs });
   };
 
-  // Estimate total time
   const avgSec = (minSec + maxSec) / 2;
   const totalEstimatedSec = Math.round(count * avgSec);
   const formatEstimatedTime = (sec) => {
-    if (sec < 60) return `~${sec} seconds`;
-    const mins = Math.floor(sec / 60);
-    const remainingSec = sec % 60;
-    return `~${mins}m ${remainingSec}s`;
+    if (sec < 60) return `about ${sec} sec`;
+    const mins = Math.round(sec / 60);
+    return `about ${mins} min`;
   };
 
   const isValid =
@@ -54,37 +55,35 @@ export default function StartJobPanel({
   };
 
   return (
-    <div className="w-full max-w-xl rounded-2xl border-2 border-indigo-100 bg-white p-6 shadow-sm">
-      <div className="mb-4">
-        <h3 className="text-base font-bold text-gray-900">
-          Start Live Submission Job
+    <div className="w-full rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+      {/* Header & Summary Line */}
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900">
+          Pre-flight Submission Setup
         </h3>
-        <p className="mt-0.5 text-xs text-gray-500">
-          Generates and submits realistic responses sequentially to Google Forms.
+        <p className="mt-0.5 text-xs text-slate-600 font-medium">
+          {count} response{count !== 1 ? 's' : ''}, {formatEstimatedTime(totalEstimatedSec)}
         </p>
       </div>
 
-      <form onSubmit={handleStart} className="space-y-4">
-        {/* Count & Delays Grid */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <label className="block text-xs font-semibold text-gray-700">
-              Total Responses
-            </label>
-            <input
-              type="number"
-              min="1"
-              max="500"
-              value={count}
-              onChange={(e) => onCountChange(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-            <span className="mt-0.5 block text-[10px] text-gray-400">Max 500</span>
-          </div>
+      {/* No Dry Run Warning Info Alert */}
+      {!hasDryRun && (
+        <Alert
+          variant="info"
+          title="Recommendation: Review Dry Run First"
+        >
+          <p className="mt-0.5 text-xs text-blue-700">
+            You haven&apos;t generated sample responses yet. Inspecting sample answers in Step 3 helps verify field formatting before live submission.
+          </p>
+        </Alert>
+      )}
 
+      <form onSubmit={handleStart} className="space-y-4">
+        {/* Delay Range Inputs */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-md bg-slate-50 border border-slate-200">
           <div>
-            <label className="block text-xs font-semibold text-gray-700">
-              Min Delay (sec)
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Min Delay (seconds)
             </label>
             <input
               type="number"
@@ -93,14 +92,14 @@ export default function StartJobPanel({
               max="30"
               value={minSec}
               onChange={(e) => handleMinSecChange(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             />
-            <span className="mt-0.5 block text-[10px] text-gray-400">Random delay range</span>
+            <span className="mt-0.5 block text-[10px] text-slate-400">Lower bound between requests</span>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700">
-              Max Delay (sec)
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Max Delay (seconds)
             </label>
             <input
               type="number"
@@ -109,94 +108,47 @@ export default function StartJobPanel({
               max="60"
               value={maxSec}
               onChange={(e) => handleMaxSecChange(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             />
-            <span className="mt-0.5 block text-[10px] text-gray-400">Paced submission</span>
+            <span className="mt-0.5 block text-[10px] text-slate-400">Paced upper bound</span>
           </div>
         </div>
 
-        {/* Estimation Summary Box */}
-        <div className="flex items-center justify-between rounded-lg bg-indigo-50/60 px-4 py-2.5 text-xs text-indigo-900">
-          <div>
-            <span className="font-medium">Estimated job duration:</span>{' '}
-            <span className="font-bold">{formatEstimatedTime(totalEstimatedSec)}</span>
-          </div>
-          <span className="text-[11px] text-indigo-700">
-            Avg {avgSec.toFixed(1)}s / response
-          </span>
-        </div>
-
-        {/* Dry run reminder */}
-        {!hasDryRun && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            <span className="text-sm">💡</span>
-            <div>
-              <p className="font-medium">Recommendation: Run a Dry Run preview first</p>
-              <p className="mt-0.5 text-amber-700">
-                You have not previewed generated responses yet. We suggest clicking &quot;Dry Run Preview&quot; above to inspect sample data before submitting.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Guardrail Checkbox */}
-        <div className="rounded-lg border border-gray-200 bg-gray-50/70 p-3.5">
+        {/* Required Permission Checkbox */}
+        <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3.5">
           <label className="flex items-start gap-2.5 cursor-pointer">
             <input
               type="checkbox"
               checked={ownsForm}
               onChange={(e) => setOwnsForm(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
             />
-            <span className="text-xs font-medium text-gray-800 select-none">
+            <span className="text-xs font-medium text-slate-800 select-none leading-relaxed">
               I own this form or have permission to submit test responses to it.
             </span>
           </label>
         </div>
 
-        {/* Error message */}
+        {/* Start error message */}
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-            <p className="font-semibold">Could not start submission job:</p>
-            <p className="mt-0.5">{error}</p>
-          </div>
+          <Alert variant="error" title="Submission failed to start">
+            <p className="mt-0.5 text-xs text-rose-700">{error}</p>
+          </Alert>
         )}
 
-        {/* Start Button */}
-        <button
+        {/* Submit Primary CTA */}
+        <Button
           type="submit"
+          variant="primary"
+          size="md"
+          loading={loading}
           disabled={!isValid || loading}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition-all hover:bg-indigo-700 hover:shadow-lg disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+          icon={Play}
+          className="w-full"
         >
-          {loading ? (
-            <>
-              <svg
-                className="h-4 w-4 animate-spin text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                />
-              </svg>
-              <span>Initializing Job…</span>
-            </>
-          ) : (
-            <span>🚀 Start Submitting {count} Responses</span>
-          )}
-        </button>
+          {loading ? 'Initializing Job…' : `Start Submitting ${count} Responses`}
+        </Button>
       </form>
     </div>
   );
 }
-

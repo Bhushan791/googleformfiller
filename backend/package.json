@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test src/formParser.test.js src/responseGenerator.test.js src/submission.test.js src/llm.test.js",
+    "test": "node --test src/formParser.test.js src/responseGenerator.test.js src/submission.test.js src/llm.test.js src/prewarm.test.js",
     "inspect-form": "node src/scripts/inspectForm.js",
     "test-llm": "node src/scripts/testLLM.js"
   },
