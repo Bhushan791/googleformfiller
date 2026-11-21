@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: formbot-backend
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: FRONTEND_URL
+        sync: false
+      - key: GEMINI_KEY
+        sync: false
+      - key: GROQ_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+
