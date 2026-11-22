@@ -74,8 +74,8 @@ export default function useStep({
     return isStepPrerequisiteMet(stepId);
   };
 
-  const goToStep = (stepId) => {
-    if (canGoToStep(stepId)) {
+  const goToStep = (stepId, force = false) => {
+    if (force || canGoToStep(stepId)) {
       setActiveStep(stepId);
     }
   };

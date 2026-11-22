@@ -6,7 +6,7 @@ import {
   generatorSettingsSchema,
 } from "../services/responseGenerator.js";
 import answerCache from "../services/answerCache.js";
-import { prewarmForm } from "../services/prewarm.js";
+import { prewarmForm, populateHardcodedFallback } from "../services/prewarm.js";
 import { hasLLM } from "../services/llm/index.js";
 
 /** Request body schema for POST /api/parse-form */
@@ -43,7 +43,7 @@ export const parseForm = asyncHandler(async (req, res) => {
     });
   } else {
     answerCache.init(formKey, { totalAiQuestions: 0, usedLLM: false });
-    answerCache.setStatus(formKey, "failed");
+    populateHardcodedFallback(formKey, data.questions, settings);
   }
 
   res.json({ success: true, data });
@@ -86,7 +86,7 @@ export const triggerPrewarm = asyncHandler(async (req, res) => {
     });
   } else {
     answerCache.init(formKey, { totalAiQuestions: 0, usedLLM: false });
-    answerCache.setStatus(formKey, "failed");
+    populateHardcodedFallback(formKey, data.questions, settings);
   }
 
   res.json({ success: true, data: { formKey } });

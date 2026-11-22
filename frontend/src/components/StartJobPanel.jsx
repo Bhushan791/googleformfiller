@@ -19,11 +19,16 @@ export default function StartJobPanel({
   const [permissionChecked, setPermissionChecked] = useState(false);
 
   const mix = settings?.mix || { positive: 70, neutral: 20, negative: 10 };
+  const posVal = mix?.positive ?? 70;
+  const neuVal = mix?.neutral ?? 20;
+  const negVal = mix?.negative ?? 10;
+  const safeCount = Number(count) || 10;
+
   const minSec = Math.round((delay?.minMs || 2000) / 1000);
   const maxSec = Math.round((delay?.maxMs || 6000) / 1000);
 
-  const minMins = (((delay?.minMs || 2000) * count) / 60000).toFixed(1);
-  const maxMins = (((delay?.maxMs || 6000) * count) / 60000).toFixed(1);
+  const minMins = (((delay?.minMs || 2000) * safeCount) / 60000).toFixed(1);
+  const maxMins = (((delay?.maxMs || 6000) * safeCount) / 60000).toFixed(1);
 
   const handleStart = (e) => {
     e.preventDefault();
@@ -102,22 +107,22 @@ export default function StartJobPanel({
               <div className="w-full h-2 rounded-full overflow-hidden flex bg-slate-200">
                 <div
                   className="bg-green-500/60 h-full"
-                  style={{ width: `${mix.positive}%` }}
-                  title={`Positive: ${mix.positive}%`}
+                  style={{ width: `${posVal}%` }}
+                  title={`Positive: ${posVal}%`}
                 />
                 <div
                   className="bg-slate-300 h-full"
-                  style={{ width: `${mix.neutral}%` }}
-                  title={`Neutral: ${mix.neutral}%`}
+                  style={{ width: `${neuVal}%` }}
+                  title={`Neutral: ${neuVal}%`}
                 />
                 <div
                   className="bg-red-400/70 h-full"
-                  style={{ width: `${mix.negative}%` }}
-                  title={`Negative: ${mix.negative}%`}
+                  style={{ width: `${negVal}%` }}
+                  title={`Negative: ${negVal}%`}
                 />
               </div>
               <span className="text-[11px] text-slate-600 font-medium block">
-                Positive {mix.positive}% / Neutral {mix.neutral}% / Negative {mix.negative}%
+                Positive {posVal}% / Neutral {neuVal}% / Negative {negVal}%
               </span>
             </div>
             {onNavigateToStep && (

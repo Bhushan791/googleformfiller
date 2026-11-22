@@ -26,9 +26,9 @@ export function validateActionUrl(url) {
       "HOST_NOT_ALLOWED"
     );
   }
-  if (!/^\/forms\/d\/e\/[^/?#]+\/formResponse$/.test(parsed.pathname)) {
+  if (!/^\/forms\/d\/(e\/)?[^/?#]+\/formResponse$/.test(parsed.pathname)) {
     throw new AppError(
-      "Action URL must match /forms/d/e/<id>/formResponse",
+      "Action URL must match /forms/d/[e/]<id>/formResponse",
       400,
       "INVALID_URL"
     );
@@ -42,6 +42,24 @@ export function validateActionUrl(url) {
 export async function fetchFormMetadata(formUrl) {
   validateUrl(formUrl);
   const { response } = await safeFetch(formUrl);
+
+  // Extract cookies from Set-Cookie headers
+  let cookies = "";
+  if (typeof response.headers?.getSetCookie === "function") {
+    const rawCookies = response.headers.getSetCookie();
+    cookies = rawCookies
+      .map((c) => c.split(";")[0].trim())
+      .filter(Boolean)
+      .join("; ");
+  } else if (response.headers?.get) {
+    const rawCookie = response.headers.get("set-cookie") || "";
+    cookies = rawCookie
+      .split(/,(?=\s*[^;]+=)/)
+      .map((c) => c.split(";")[0].trim())
+      .filter(Boolean)
+      .join("; ");
+  }
+
   const html = await response.text();
 
   // Hidden fields
@@ -102,6 +120,7 @@ export async function fetchFormMetadata(formUrl) {
     sentinels,
     sectionCount,
     pageHistory,
+    cookies,
   };
 }
 
@@ -117,12 +136,19 @@ export function buildSubmissionPayload({
   const hidden = metadata?.hiddenFields || {};
   const sentinels = metadata?.sentinels || new Set();
 
-  // 1. Add hidden fields
+  // 1. Add mandatory hidden base fields
   params.append("fvv", hidden.fvv || "1");
-  if (hidden.fbzx) params.append("fbzx", hidden.fbzx);
   params.append("pageHistory", metadata?.pageHistory || hidden.pageHistory || "0");
-  if (hidden.partialResponse) params.append("partialResponse", hidden.partialResponse);
-  if (hidden.draftResponse) params.append("draftResponse", hidden.draftResponse);
+  if (hidden.fbzx) params.append("fbzx", hidden.fbzx);
+
+  // Append all other hidden fields from the form (tag, submissionTimestamp, partialResponse, draftResponse, etc.)
+  for (const [name, value] of Object.entries(hidden)) {
+    if (name.endsWith("_sentinel")) continue;
+    if (name === "fvv" || name === "pageHistory" || name === "fbzx") continue;
+    if (value !== undefined && value !== null) {
+      params.append(name, String(value));
+    }
+  }
 
   // 2. Map questions to entries
   const questionsByEntry = {};
@@ -189,7 +215,7 @@ export function buildSubmissionPayload({
  * Returns { success: boolean, fatalError: string | null, validationError: string | null }
  */
 export async function evaluateSubmissionResponse(response) {
-  // 1. Redirect to sign-in
+  // 1. Redirect — when using redirect:"manual", a 302 to the confirmation page IS success
   if ([301, 302, 303, 307, 308].includes(response.status)) {
     const loc = response.headers.get("location") || "";
     if (loc.includes("accounts.google.com")) {
@@ -198,6 +224,18 @@ export async function evaluateSubmissionResponse(response) {
         fatalError: "LOGIN_REQUIRED",
         validationError: null,
       };
+    }
+    // A redirect to the same form or a formResponse confirmation page = success
+    if (
+      loc.includes("/formResponse") ||
+      loc.includes("/viewform") ||
+      loc.includes("docs.google.com/forms")
+    ) {
+      return { success: true, fatalError: null, validationError: null };
+    }
+    // Any other Google redirect after POST is also typically success
+    if (loc.includes("google.com")) {
+      return { success: true, fatalError: null, validationError: null };
     }
   }
 
@@ -211,7 +249,14 @@ export async function evaluateSubmissionResponse(response) {
   }
 
   // 3. Inspect response HTML
-  const html = await response.text();
+  let html;
+  try {
+    html = await response.text();
+  } catch {
+    // If we can't read the body but status is OK, treat as success
+    if (response.ok) return { success: true, fatalError: null, validationError: null };
+    return { success: false, fatalError: null, validationError: `HTTP ${response.status}` };
+  }
 
   if (
     html.includes("accounts.google.com") &&
@@ -273,6 +318,22 @@ export async function evaluateSubmissionResponse(response) {
     };
   }
 
+  // 4. HTTP 401 / 403 login required
+  if (response.status === 401 || response.status === 403) {
+    if (
+      html.includes("accounts.google.com") ||
+      html.includes("ServiceLogin") ||
+      html.includes("signin") ||
+      html.includes("Sign in")
+    ) {
+      return {
+        success: false,
+        fatalError: "LOGIN_REQUIRED",
+        validationError: null,
+      };
+    }
+  }
+
   // Default fallback check
   if (response.ok) {
     return { success: true, fatalError: null, validationError: null };
@@ -292,9 +353,23 @@ export async function evaluateSubmissionResponse(response) {
 export async function submitSingleResponse({
   actionUrl,
   payload,
+  cookies = "",
+  formUrl = "",
   fetchFn = fetch,
 }) {
   validateActionUrl(actionUrl);
+
+  const referer = formUrl || actionUrl.replace(/\/formResponse$/, "/viewform");
+  const headers = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "User-Agent": USER_AGENT,
+    "Origin": "https://docs.google.com",
+    "Referer": referer,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  };
+  if (cookies) {
+    headers["Cookie"] = cookies;
+  }
 
   let attempt = 0;
   const maxAttempts = 3;
@@ -304,11 +379,8 @@ export async function submitSingleResponse({
     try {
       const response = await fetchFn(actionUrl, {
         method: "POST",
-        redirect: "manual",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": USER_AGENT,
-        },
+        redirect: "follow",
+        headers,
         body: payload,
         signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
       });

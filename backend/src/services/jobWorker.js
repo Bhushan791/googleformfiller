@@ -122,6 +122,20 @@ class JobWorker {
           this.generateChunk(job, aheadNeeded).catch(() => {});
         }
 
+        // Ensure fresh metadata (fresh anti-duplicate fbzx, fresh tag, and valid session cookies)
+        try {
+          metadata = await fetchFormMetadata(job.formUrl);
+        } catch (refreshErr) {
+          if (!metadata) {
+            metadata = {
+              hiddenFields: job.hiddenFields || {},
+              sentinels: new Set(),
+              pageHistory: "0",
+              cookies: "",
+            };
+          }
+        }
+
         const currentResponse = job.responses[nextIndex];
         const payload = buildSubmissionPayload({
           answers: currentResponse.answers,
@@ -133,7 +147,16 @@ class JobWorker {
         const result = await submitSingleResponse({
           actionUrl: job.actionUrl,
           payload,
+          cookies: metadata.cookies,
+          formUrl: job.formUrl,
         });
+
+        if (!result.success) {
+          console.warn(
+            `⚠️ Submission #${nextIndex} for job ${jobId} failed:`,
+            `error=${result.error}, fatal=${result.fatalError}, attempts=${result.attempts}`
+          );
+        }
 
         const now = new Date().toISOString();
         const responseResult = {

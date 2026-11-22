@@ -9,11 +9,62 @@ import {
   hasPastExperiencePhrasing,
 } from "./textGenerator.js";
 import { setCache as setOptionCache, getCacheKey as getOptionCacheKey } from "./sentimentEngine.js";
+import {
+  HARDCODED_SHORT_TEXT,
+  HARDCODED_PARAGRAPHS,
+  classifyOptionHeuristic,
+} from "../data/hardcodedResponses.js";
 
 // Active warming locks to ensure the same formKey is never warmed twice at once
 const warmingLocks = new Set();
 // Active background refill locks: `${formKey}:::${qid}:::${sentiment}`
 const refillLocks = new Set();
+
+/**
+ * Populates the answerCache with high-quality custom hardcoded responses when LLM is unavailable.
+ */
+export function populateHardcodedFallback(formKey, questions = [], settings = {}) {
+  const requestedMode = settings?.audienceMode || "auto";
+  const effectiveMode = requestedMode === "auto" ? "research" : requestedMode;
+
+  answerCache.setDetection(formKey, {
+    detectedMode: "research",
+    confidence: 0.7,
+    reason: "Fallback mode: natural survey templates",
+    audience: "General survey respondents",
+    effectiveMode,
+  });
+
+  for (const q of questions) {
+    const qid = q.id || q.entryId;
+    if (!qid) continue;
+
+    // Choice questions
+    if (["multiple_choice", "dropdown", "checkboxes"].includes(q.type) && Array.isArray(q.options)) {
+      const optionMap = {};
+      for (const opt of q.options) {
+        optionMap[opt] = classifyOptionHeuristic(opt);
+      }
+      answerCache.addOptions(formKey, qid, optionMap);
+      const optKey = getOptionCacheKey(q);
+      setOptionCache(optKey, optionMap);
+    }
+
+    // Text questions
+    if (["short_text", "paragraph"].includes(q.type)) {
+      const isParagraph = q.type === "paragraph";
+      for (const sent of ["positive", "neutral", "negative"]) {
+        const pool = isParagraph ? HARDCODED_PARAGRAPHS[sent] : HARDCODED_SHORT_TEXT[sent];
+        if (pool && pool.length > 0) {
+          const shuffled = [...pool].sort(() => 0.5 - Math.random()).slice(0, 8);
+          answerCache.pushAnswers(formKey, qid, sent, shuffled);
+        }
+      }
+    }
+  }
+
+  answerCache.setStatus(formKey, "ready", { usedLLM: false, fallbackUsed: true });
+}
 
 const combinedPrewarmSchema = z.object({
   detection: z
@@ -93,7 +144,7 @@ export async function prewarmForm({
     // If no questions need AI, mark ready immediately
     if (totalAiQuestions === 0) {
       answerCache.init(formKey, { totalAiQuestions: 0, usedLLM: false });
-      answerCache.setStatus(formKey, "ready");
+      answerCache.setStatus(formKey, "ready", { usedLLM: false, fallbackUsed: true });
       return;
     }
 
@@ -235,8 +286,8 @@ Respond ONLY with the JSON object.`;
       try {
         result = await executeCombinedCall();
       } catch (retryErr) {
-        console.warn("⚠️ Combined prewarm retry failed, marking status failed:", retryErr.message);
-        answerCache.setStatus(formKey, "failed");
+        console.warn("⚠️ Combined prewarm retry failed; populating custom hardcoded responses:", retryErr.message);
+        populateHardcodedFallback(formKey, questions, settings);
         return;
       }
     }
@@ -441,7 +492,13 @@ Respond ONLY with a valid JSON array of strings:
       }
     }
   } catch (err) {
-    console.warn(`⚠️ Background refill error for ${qid} (${sentiment}):`, err.message);
+    console.warn(`⚠️ Background refill error for ${qid} (${sentiment}), using hardcoded responses:`, err.message);
+    const isParagraph = question.type === "paragraph";
+    const pool = isParagraph ? HARDCODED_PARAGRAPHS[sentiment] : HARDCODED_SHORT_TEXT[sentiment];
+    if (pool && pool.length > 0) {
+      const shuffled = [...pool].sort(() => 0.5 - Math.random()).slice(0, 8);
+      answerCache.pushAnswers(formKey, qid, sentiment, shuffled);
+    }
   } finally {
     refillLocks.delete(lockKey);
   }

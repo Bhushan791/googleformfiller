@@ -55,6 +55,9 @@ export default function SummaryPanel({
   }, [formKey]);
 
   const mix = settings?.mix || { positive: 70, neutral: 20, negative: 10 };
+  const posVal = mix?.positive ?? 70;
+  const neuVal = mix?.neutral ?? 20;
+  const negVal = mix?.negative ?? 10;
   const count = settings?.count || 10;
   const questionsCount = data?.questions?.length || 0;
 
@@ -133,7 +136,7 @@ export default function SummaryPanel({
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-slate-500 font-medium">Tone Mix</span>
             <span className="text-slate-700 font-medium text-[11px]">
-              Positive {mix.positive}% / Neutral {mix.neutral}% / Negative {mix.negative}%
+              Positive {posVal}% / Neutral {neuVal}% / Negative {negVal}%
             </span>
           </div>
 
@@ -141,18 +144,18 @@ export default function SummaryPanel({
           <div className="w-full h-2 rounded-full overflow-hidden flex bg-slate-100">
             <div
               className="bg-green-500/60 h-full transition-all"
-              style={{ width: `${mix.positive}%` }}
-              title={`Positive: ${mix.positive}%`}
+              style={{ width: `${posVal}%` }}
+              title={`Positive: ${posVal}%`}
             />
             <div
               className="bg-slate-300 h-full transition-all"
-              style={{ width: `${mix.neutral}%` }}
-              title={`Neutral: ${mix.neutral}%`}
+              style={{ width: `${neuVal}%` }}
+              title={`Neutral: ${neuVal}%`}
             />
             <div
               className="bg-red-400/70 h-full transition-all"
-              style={{ width: `${mix.negative}%` }}
-              title={`Negative: ${mix.negative}%`}
+              style={{ width: `${negVal}%` }}
+              title={`Negative: ${negVal}%`}
             />
           </div>
 

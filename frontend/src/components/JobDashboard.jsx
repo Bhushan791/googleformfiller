@@ -70,7 +70,17 @@ export default function JobDashboard({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showCancelModal]);
 
-  if (!job) return null;
+  if (!job) {
+    return (
+      <div className="w-full rounded-lg border border-slate-200 bg-white p-12 text-center space-y-4">
+        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold text-slate-900">Connecting to submission session…</h3>
+          <p className="text-xs text-slate-500">Retrieving live job progress and response logs from server.</p>
+        </div>
+      </div>
+    );
+  }
 
   const {
     id,
@@ -410,8 +420,8 @@ export default function JobDashboard({
 
           <div className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-slate-50/50 max-h-48 overflow-y-auto">
             {activityEvents.map((evt, idx) => {
-              const text = typeof evt === 'string' ? evt : evt.text;
-              const isErr = typeof evt === 'object' && evt.type === 'error';
+              const text = typeof evt === 'string' ? evt : (evt?.text || 'Submission update');
+              const isErr = typeof evt === 'object' && evt?.type === 'error';
               return (
                 <div key={idx} className="px-3 py-1.5 text-xs flex items-center justify-between text-slate-700">
                   <div className="flex items-center gap-2 truncate">
@@ -420,7 +430,7 @@ export default function JobDashboard({
                       {text}
                     </span>
                   </div>
-                  {evt.time && (
+                  {evt && typeof evt === 'object' && evt.time && (
                     <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-2">
                       {evt.time}
                     </span>

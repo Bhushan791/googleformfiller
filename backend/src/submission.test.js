@@ -118,6 +118,26 @@ describe("Submission Engine Tests", () => {
       assert.equal(params.get("entry.1004_hour"), "14");
       assert.equal(params.get("entry.1004_minute"), "30");
     });
+
+    test("includes tag and submissionTimestamp in submission payload for Google Forms bot protection", () => {
+      const answers = { "entry.1001": "Bob" };
+      const metadata = {
+        hiddenFields: {
+          fvv: "1",
+          fbzx: "-9999",
+          tag: "security_tag_token_abc==",
+          submissionTimestamp: "-1",
+        },
+      };
+
+      const payload = buildSubmissionPayload({ answers, questions, metadata });
+      const params = new URLSearchParams(payload);
+
+      assert.equal(params.get("tag"), "security_tag_token_abc==");
+      assert.equal(params.get("submissionTimestamp"), "-1");
+      assert.equal(params.get("fbzx"), "-9999");
+      assert.equal(params.get("entry.1001"), "Bob");
+    });
   });
 
   describe("evaluateSubmissionResponse", () => {
@@ -246,6 +266,34 @@ describe("Submission Engine Tests", () => {
       assert.equal(result.success, true);
       assert.equal(result.attempts, 1);
       assert.equal(callCount, 1);
+    });
+
+    test("sends Origin, Referer, and Cookie headers", async () => {
+      let capturedHeaders = null;
+      const mockFetch = async (_url, options) => {
+        capturedHeaders = options.headers;
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          text: async () => "Your response has been recorded",
+        };
+      };
+
+      await submitSingleResponse({
+        actionUrl,
+        payload: "entry.100=hello",
+        cookies: "S=spreadsheet_forms=xyz; NID=abc",
+        formUrl: "https://docs.google.com/forms/d/e/1FAIpQLSd9_sampleFormId123456789/viewform",
+        fetchFn: mockFetch,
+      });
+
+      assert.equal(capturedHeaders["Origin"], "https://docs.google.com");
+      assert.equal(
+        capturedHeaders["Referer"],
+        "https://docs.google.com/forms/d/e/1FAIpQLSd9_sampleFormId123456789/viewform"
+      );
+      assert.equal(capturedHeaders["Cookie"], "S=spreadsheet_forms=xyz; NID=abc");
     });
 
     test("retries on 500 error and succeeds on 2nd attempt", async () => {

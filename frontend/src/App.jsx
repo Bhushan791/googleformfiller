@@ -20,6 +20,7 @@ import { createJob, getJobStatus } from './api/jobs';
 import { triggerPrewarm, getPrewarmStatus } from './api/forms';
 import { useToast } from './components/ui/Toast';
 import { ArrowLeft, ArrowRight, RotateCcw, Sparkles } from 'lucide-react';
+import EmptyState from './components/ui/EmptyState';
 
 const STEP_METADATA = {
   1: {
@@ -119,6 +120,7 @@ export default function App() {
 
   const {
     job,
+    loading: jobLoading,
     actionLoading,
     pause: pauseJob,
     resume: resumeJob,
@@ -320,7 +322,7 @@ export default function App() {
 
   const handleSkipToRun = () => {
     setDryRunSkipped(true);
-    goToStep(4);
+    goToStep(4, true);
   };
 
   const handleAudienceChange = useCallback(
@@ -377,7 +379,7 @@ export default function App() {
       } catch (e) {
         console.warn('Failed to save active jobId to localStorage', e);
       }
-      goToStep(4);
+      goToStep(4, true);
       addToast(`Job #${newJobId.slice(0, 8)} started`, 'success');
     } catch (err) {
       const msg =
@@ -488,7 +490,7 @@ export default function App() {
                     if (lastJobLink.jobId) {
                       setActiveJobId(lastJobLink.jobId);
                     }
-                    goToStep(4);
+                    goToStep(4, true);
                   }}
                   className="text-[13px] text-slate-500 hover:text-blue-600 transition-colors inline-flex items-center gap-1 cursor-pointer"
                 >

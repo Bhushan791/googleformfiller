@@ -322,4 +322,44 @@ We need text and options.
       },
     });
   });
+
+  // 9. When both AI fail, populates hardcoded responses without throwing
+  it("when both AI fail, prewarmForm does NOT throw error and uses custom hardcoded responses", async () => {
+    const questions = [
+      { id: "q1", entryId: "entry.1", title: "General Feedback", type: "short_text" },
+      { id: "q2", entryId: "entry.2", title: "Detailed Impressions", type: "paragraph" },
+      { id: "q3", entryId: "entry.3", title: "Would recommend?", type: "multiple_choice", options: ["Definitely", "Never"] }
+    ];
+
+    const failingLLMFn = async () => {
+      throw new Error("503 LLM_UNAVAILABLE: All AI providers failed");
+    };
+
+    // Must not throw an unhandled rejection
+    await prewarmForm({
+      formKey: "offline-fail-test",
+      questions,
+      formContext: { title: "Test Form", description: "Testing failover" },
+      generateTextFn: failingLLMFn,
+    });
+
+    // Check status is ready with fallback
+    const statusInfo = answerCache.getStatusInfo("offline-fail-test");
+    assert.equal(statusInfo.status, "ready");
+    assert.equal(statusInfo.fallbackUsed, true);
+
+    // Buffer has answers for text questions
+    const q1Ans = answerCache.pop("offline-fail-test", "q1", "positive");
+    assert.ok(q1Ans, "q1 should have positive answer from hardcoded responses");
+    assert.ok(typeof q1Ans === "string" && q1Ans.length > 0);
+
+    const q2Ans = answerCache.pop("offline-fail-test", "q2", "negative");
+    assert.ok(q2Ans, "q2 should have negative answer from hardcoded responses");
+    assert.ok(typeof q2Ans === "string" && q2Ans.length > 0);
+
+    // Options are classified via heuristic
+    const q3Opts = answerCache.getOptions("offline-fail-test", "q3");
+    assert.equal(q3Opts["Definitely"], "positive");
+    assert.equal(q3Opts["Never"], "negative");
+  });
 });

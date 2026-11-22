@@ -3,6 +3,7 @@ import config from "../config/env.js";
 import { generateText, hasLLM } from "./llm/index.js";
 import answerCache from "./answerCache.js";
 import { refillBuffer } from "./prewarm.js";
+import { getCustomHardcodedAnswer } from "../data/hardcodedResponses.js";
 
 // ---------------------------------------------------------------------------
 // Blocklist & Diversity Helpers for Audience Modes
@@ -276,9 +277,7 @@ const LOCAL_FALLBACK_TEMPLATES = {
  * Returns a template fallback answer for a given question type and sentiment.
  */
 export function getLocalFallbackAnswer(type, sentiment) {
-  const category = type === "paragraph" ? "paragraph" : "short_text";
-  const pool = LOCAL_FALLBACK_TEMPLATES[category][sentiment] || LOCAL_FALLBACK_TEMPLATES[category].neutral;
-  return pool[Math.floor(Math.random() * pool.length)];
+  return getCustomHardcodedAnswer(type, sentiment);
 }
 
 // ---------------------------------------------------------------------------
@@ -426,15 +425,18 @@ export async function generateBatchedText({
       };
     }
 
-    // If buffer was empty, await in-flight refill for at most 6s
+    // If buffer was empty, await in-flight refill for at most 6s (only if LLM enabled and not failed)
     if (cachedAnswers.length === 0) {
-      const waited = await answerCache.waitForAnswer(formKey, qid, sentiment, 6000);
-      if (waited) {
-        cachedAnswers.push(waited);
-        while (cachedAnswers.length < safeCount) {
-          const more = answerCache.pop(formKey, qid, sentiment);
-          if (!more) break;
-          cachedAnswers.push(more);
+      const cacheStatus = answerCache.getStatus(formKey);
+      if (cacheStatus !== "failed" && hasLLM.valueOf()) {
+        const waited = await answerCache.waitForAnswer(formKey, qid, sentiment, 6000);
+        if (waited) {
+          cachedAnswers.push(waited);
+          while (cachedAnswers.length < safeCount) {
+            const more = answerCache.pop(formKey, qid, sentiment);
+            if (!more) break;
+            cachedAnswers.push(more);
+          }
         }
       }
     }

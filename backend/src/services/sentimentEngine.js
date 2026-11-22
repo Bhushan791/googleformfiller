@@ -3,6 +3,7 @@ import config from "../config/env.js";
 import { generateText, hasLLM } from "./llm/index.js";
 import { stripMarkdownFences } from "./textGenerator.js";
 import answerCache from "./answerCache.js";
+import { classifyOptionHeuristic } from "../data/hardcodedResponses.js";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -114,7 +115,7 @@ export async function classifyOptions(question, optionsOrClient) {
 
   if (optionsOrClient === null || optionsOrClient?.generateTextFn === null || optionsOrClient?.generateTextFn === false) {
     const fallback = {};
-    for (const opt of options) fallback[opt] = "n/a";
+    for (const opt of options) fallback[opt] = classifyOptionHeuristic(opt);
     setCache(cacheKey, fallback);
     return fallback;
   }
@@ -144,10 +145,10 @@ export async function classifyOptions(question, optionsOrClient) {
 
   const isLLMAvailable = generateFn || hasLLM.valueOf();
 
-  // Without LLM, label everything as "n/a" so uniform random is used
+  // Without LLM, use smart heuristic
   if (!isLLMAvailable) {
     const fallback = {};
-    for (const opt of options) fallback[opt] = "n/a";
+    for (const opt of options) fallback[opt] = classifyOptionHeuristic(opt);
     setCache(cacheKey, fallback);
     return fallback;
   }
@@ -217,7 +218,7 @@ Respond ONLY with a valid JSON object mapping each option string exactly to its 
       err.message
     );
     const fallback = {};
-    for (const opt of options) fallback[opt] = "n/a";
+    for (const opt of options) fallback[opt] = classifyOptionHeuristic(opt);
     setCache(cacheKey, fallback);
     return fallback;
   }

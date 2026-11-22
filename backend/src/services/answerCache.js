@@ -151,6 +151,9 @@ class AnswerCache {
     if (extra.usedLLM !== undefined) {
       entry.usedLLM = extra.usedLLM;
     }
+    if (extra.fallbackUsed !== undefined) {
+      entry.fallbackUsed = extra.fallbackUsed;
+    }
     if (extra.totalAiQuestions !== undefined) {
       entry.totalAiQuestions = extra.totalAiQuestions;
     }
@@ -337,6 +340,7 @@ class AnswerCache {
       ready: readyCount,
       total: entry.totalAiQuestions,
       usedLLM: entry.usedLLM,
+      fallbackUsed: Boolean(entry.fallbackUsed || !entry.usedLLM),
       detectedMode: entry.detectedMode || null,
       confidence: entry.confidence !== undefined ? entry.confidence : null,
       reason: entry.reason || null,
